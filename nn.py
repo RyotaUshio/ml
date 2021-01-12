@@ -34,10 +34,12 @@ class mlp:
     多層パーセプトロン(MLP: Multi Layer Perceptron). 
     """
     layers: Sequence[layer] # 各層を表すlayerオブジェクトを並べた配列
-    loss: "loss_func" = dataclasses.field(default=None, init=False) # 損失関数
+    loss: "loss_func" = dataclasses.field(default=None) # 損失関数
 
     def __post_init__(self):
-        self.loss = self[-1].h.loss
+        if self.loss is None:
+            self.loss = self[-1].h.loss
+        self.loss.net = self
 
     def __len__(self):
         return len(self.layers)
@@ -47,9 +49,13 @@ class mlp:
 
     def __iter__(self):
         return iter(self.layers)
+
+    def __call__(self, x):
+        self.forward_prop(x)
+        return self[-1].z.copy()
     
     @classmethod
-    def from_num(cls, num: Sequence[int], act_funcs: Sequence["act_func"], sigma:float=0.01) -> "mlp":
+    def from_num(cls, num: Sequence[int], act_funcs: Sequence["act_func"], sigma:float=0.01, loss=None) -> "mlp":
         """
         各層のニューロン数を表す配列numからlayerオブジェクトとmplオブジェクトを生成する。
         Parameters
@@ -72,7 +78,7 @@ class mlp:
                      dtype=object)
         
         layers = [layer(size=num[l], W=W[l], b=b[l], h=act_funcs[l]) for l in range(L+1)]
-        return cls(layers)
+        return cls(layers, loss=loss)
     
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
@@ -84,7 +90,7 @@ class mlp:
     def back_prop(self, t:np.ndarray) -> None:
         """教師信号ベクトルtをもとに誤差逆伝播法による学習を行う."""
         # 出力層の誤差はすぐに計算できる.
-        self[-1].delta = self.loss.error(self, t)
+        self[-1].delta = self.loss.error(t)
         # それを使って誤差を順次前の層へ逆伝播させていく
         for l in range(len(self)-2, 0, -1):
             self[l].delta = self[l].h.grad_from_val(self[l].z) * (self[l+1].delta @ self[l+1].W.T)
@@ -115,7 +121,7 @@ class mlp:
         # 入力層が第0層, 出力層が第L層
         L = len(self)-1
         # 途中経過の記録
-        log = logger(cond=log_cond)
+        log = logger()
         
         try:
             for m in range(max_iter):
@@ -137,10 +143,11 @@ class mlp:
                         dJdb = np.sum(self[l].delta, axis=0)
                         self[l].W += -eta*dJdW
                         # print(f"delta:{self[l].delta.shape}, z:{self[l-1].z.shape}, b:{self[l].b.shape}, dJdb:{dJdb.shape}, W:{self[l].W.shape}, dJdW:{dJdW.shape}")
+                        # print(f"delta:{self[l].delta}, z:{self[l-1].z}, b:{self[l].b}, dJdb:{dJdb}, W:{self[l].W}, dJdW:{dJdW}")
                         self[l].b += -eta*dJdb
 
                     if log_cond(m, i):
-                        log.loss.append(self.loss(self, t))
+                        log.loss.append(self.loss(t))
                         log.count.append(int(np.ceil(len(X)/batch_size)) * m + i)
                         print(f"m = {m}, i = {i}, J = {log.loss[-1]}")
     
@@ -154,9 +161,15 @@ class mlp:
         """
         correct = 0
         for i in range(len(X)):
-            self.forward_prop(X[[i]])
-            if np.argmax(T[i]) == np.argmax(self[-1].z):
-                correct += 1
+            if isinstance(self[-1].h, softmax):
+                #self.forward_prop(X[[i]])
+                if np.argmax(T[i]) == np.argmax(self(X[[i]])):
+                    correct += 1
+
+            elif isinstance(self[-1].h, sigmoid):
+                ans = 1 if self(X[[i]]) > 0.5 else 0
+                if T[i] == ans:
+                    correct += 1
 
         rate = correct / len(X) * 100
         print(f"{rate} % correct")
@@ -220,11 +233,7 @@ class softmax(act_func):
         self.loss = mul_cross_entropy()
         
     def __call__(self, u):
-        try:
-            tmp = u - u.max()
-        except ValueError as e:
-            print(u)
-            raise e
+        tmp = u - u.max()
         return np.exp(tmp) / np.sum(np.exp(tmp))
     
     def grad_from_val(self, z):
@@ -237,7 +246,7 @@ class loss_func:
     net: mlp = dataclasses.field(default=None)
     
     """損失関数"""    
-    def __call__(self, net, t):
+    def __call__(self, t):
         """
         損失関数の値E(z)そのもの.
         Parameter(s)
@@ -247,7 +256,7 @@ class loss_func:
         """
         raise NotImplementedError
 
-    def error(self, net, t):
+    def error(self, t):
         """
         出力層の誤差delta = 出力層の内部ポテンシャルuによる微分
         """
@@ -255,28 +264,28 @@ class loss_func:
 
 
 class mean_square(loss_func):
-    def __call__(self, net, t):
-        norms = 0.5 * np.linalg.norm(net[-1].z - t, axis=1)
+    def __call__(self, t):
+        norms = 0.5 * np.linalg.norm(self.net[-1].z - t, axis=1)
         if norms.shape != (len(t),):
             raise Exception("unexpected shape")
         return np.mean(norms)
 
-    def error(self, net, t):
-        return np.mean(net[-1].z - t, axis=0)
+    def error(self, t):
+        return np.mean(self.net[-1].z - t, axis=0)
     
 class cross_entropy(loss_func):
-    def __call__(self, net, t):
+    def __call__(self, t):
         N = len(t)
-        z = net[-1].z
+        z = self.net[-1].z
         return -(t * np.log(z) + (1.0 - t) * np.log(1 - z)).sum() / N
-    def error(self, net, t):
+    def error(self, t):
         N = len(t)
-        return (net[-1].z - t) / N
+        return (self.net[-1].z - t) / N
 
     
 class mul_cross_entropy(cross_entropy):
-    def __call__(self, net, t):
-        return -(t * np.log(net[-1].z + 1e-7)).mean()
+    def __call__(self, t):
+        return -(t * np.log(self.net[-1].z + 1e-7)).mean()
 
 
     
@@ -286,7 +295,7 @@ class logger:
     loss: Sequence[float] = dataclasses.field(default_factory=list)
     rate: float = dataclasses.field(default=None)
     count: Sequence[int] = dataclasses.field(default_factory=list)
-    cond: Callable = dataclasses.field(default=lambda m, i: i==0)
+    #cond: Callable = dataclasses.field(default=lambda m, i: i==0)
 
     def show(self, ax=None, semilog=False, *args, **kwargs):
         if ax is None:
