@@ -1,12 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from keras.datasets import mnist
+import keras.datasets.mnist
 from typing import Sequence, List, Callable
 from importlib import reload
 import nn
 reload(nn)
-
-(train_images, train_labels), (test_images, test_labels) = mnist.load_data()
 
 def one_of_K(labels:np.ndarray):
     """
@@ -68,48 +66,67 @@ def down_sample(image, rate):
             ret[i][j] = image[i*rate][j*rate]
     return ret
     
-X_train, T_train = convert(train_images, train_labels, 2)
-X_test, T_test = convert(test_images, test_labels, 2)
+def mnist(prob:float=0, n_layer:int=1, n_neuron:int=196,
+          eta:float=0.005,
+          eps:float=0.02,
+          max_iter:int=20,
+          log_cond:Callable=lambda m, i: i%1000==0,
+          *args, **kwargs):
+    """
+    10クラス分類用のmlpオブジェクトを生成し、MNISTデータセットを学習させ、そのmlpオブジェクトとlogを返す。
+    Parameters
+    ----------
+    prob:float
+         ノイズ割合(0.0--1.0)
+    n_layer:int
+         中間層の層数
+    n_neuron:int
+         中間層1層あたりのニューロン数
+    others:
+         mlpオブジェクトのtrainメソッドの引数
 
-def mnist(prob=0, eta=0.05, max_iter=20, log_cond=lambda m, i: i%1000==0, *args, **kwargs):
+    Returns
+    -------
+    net: nn.mlp
+         学習済みmlpオブジェクト
+    log: nn.logger
+         学習の途中経過などを記録したnn.loggerオブジェクト
+    """
+    # ノイズを付加した入力画像データを作成
     X_train_, X_test_ = add_noise_all(X_train, prob), add_noise_all(X_test, prob)
-    act_funcs = [
-        nn.linear(),
-        nn.sigmoid(),
-        nn.sigmoid(),
-        nn.softmax()
-    ]
+    # 各層の活性化関数
+    act_funcs = [nn.linear()] + [nn.sigmoid() for _ in range(n_layer)] + [nn.softmax()]
+    # 入力次元数
     d = X_train_[0].size
+    # 出力次元数
     K = 10
-    num = [d, d, d, K]
+    # 各層のニューロンの数
+    num = [d] + [n_neuron for _ in range(n_layer)] + [K]
+    # mlpオブジェクトを生成
     net = nn.mlp.from_num(num=num, act_funcs=act_funcs, loss=nn.mul_cross_entropy())
 
-    
+    # 学習を実行
     log = net.train(X_train_, T_train, 
                     eta=eta,
+                    eps=eps,
                     max_iter=max_iter,
                     log_cond=log_cond, 
                     *args, **kwargs
     )
-        
+
+    # 性能試験
     print("train")
-    net.test(X_train_, T_train, log=log)
+    net.test(X_train_, T_train)
     print("test")
     net.test(X_test_, T_test, log=log)
 
-    return log
-
-# log = mnist(0)
-# log.to_file("log.out")
-# fig, ax = plt.subplots()
-# log.show(ax)
-# plt.show()
+    # mlpとログを返す
+    return net, log
 
 
-
-
-# n = 10
-# fig, ax = plt.subplots(1, n)
-# for i in range(n):
-#     img_show(X_train[i], ax[i])
-
+first=True
+if first:
+    (train_images, train_labels), (test_images, test_labels) = keras.datasets.mnist.load_data()
+    X_train, T_train = convert(train_images, train_labels, 2)
+    X_test, T_test = convert(test_images, test_labels, 2)
+    first = False

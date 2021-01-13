@@ -1,4 +1,5 @@
 import numpy as np
+import time
 import dataclasses
 import doctest
 from typing import Sequence, List, Callable
@@ -69,7 +70,7 @@ class mlp:
         L = len(num) - 1
         # 重み行列の各要素は標準偏差sigmaのガウス分布からサンプリングされる
         W = np.array([None] +
-                     [np.random.normal(scale=sigma,
+                     [np.random.normal(scale=1.0/np.sqrt(num[l-1]), 
                                        size=(num[l-1], num[l]))
                       for l in range(1, L+1)],
                      dtype=object)
@@ -107,32 +108,42 @@ class mlp:
         訓練データ集合(X: 入力, T: 出力)をネットワークに学習させる.
         Parameters
         ----------
-        X, T: 訓練データ集合
-        eta: 学習係数
-        eps: 反復停止判定に用いる損失の閾値
-        max_iter: 最大反復回数
-        batch_size: ミニバッチ学習に用いるミニバッチのサイズ
+        X, T: 訓練データ集合               
+        eta:
+            学習係数を表すパラメータ
+        eps:
+            直近1エポックの損失の平均がこれ未満になれば、max_iterエポック未満でも学習を打ち切る
+        max_iter:
+            最大反復エポック数
+        batch_size: ミニバッチ学習に用いるミニバッチのサイズ (ミニバッチ学習はうまく動作しなかったので当面使わない)
         log_cond: カウンタ変数m, iがどんな条件を満たしたときに損失関数の値などをlogに記録するか
 
         Returns
         -------
-        log: 途中経過を記録したloggerオブジェクト
+        log: 学習の途中経過を記録したloggerオブジェクト
         """
         # 入力層が第0層, 出力層が第L層
         L = len(self)-1
         # 途中経過の記録
         log = logger()
+        # 訓練データの総数
+        N = len(X)
+        # AdaGradで使う、dJ/dWやdJ/dbの二乗和を保持する変数
+        h_W = [0 for _ in range(L+1)] # 重み行列用
+        h_b = [0 for _ in range(L+1)] # バイアス用
         
         try:
+            count = 0 # 反復回数
+            t0 = time.time() # 学習開始時刻
+            
             for m in range(max_iter):
-                if m > 0 and np.sum(log.loss[-100:]) < eps:
-                    break
                 #np.random.shuffle(X)
                 for i in range(int(np.ceil(len(X)/batch_size))):
+                    # if m > 0 and np.mean(log.loss[-N:]) < eps:
+                    #     break
                     # ミニバッチ
                     x = X[i*batch_size:(i+1)*batch_size]
                     t = T[i*batch_size:(i+1)*batch_size]
-                    N = len(X)
                     # 順伝播
                     self.forward_prop(x)
                     # 逆伝播
@@ -141,18 +152,23 @@ class mlp:
                     for l in range(1, L+1):
                         dJdW = self[l-1].z.T @ self[l].delta
                         dJdb = np.sum(self[l].delta, axis=0)
-                        self[l].W += -eta*dJdW
-                        # print(f"delta:{self[l].delta.shape}, z:{self[l-1].z.shape}, b:{self[l].b.shape}, dJdb:{dJdb.shape}, W:{self[l].W.shape}, dJdW:{dJdW.shape}")
-                        # print(f"delta:{self[l].delta}, z:{self[l-1].z}, b:{self[l].b}, dJdb:{dJdb}, W:{self[l].W}, dJdW:{dJdW}")
-                        self[l].b += -eta*dJdb
+                        h_W[l] += dJdW * dJdW
+                        h_b[l] += dJdb * dJdb
+                        self[l].W += -eta*dJdW / (np.sqrt(h_W[l]) + 1e-7)
+                        self[l].b += -eta*dJdb / (np.sqrt(h_b[l]) + 1e-7)
 
                     if log_cond(m, i):
                         log.loss.append(self.loss(t))
-                        log.count.append(int(np.ceil(len(X)/batch_size)) * m + i)
+                        log.count.append(count)
                         print(f"m = {m}, i = {i}, J = {log.loss[-1]}")
+
+                    count += 1
     
         except KeyboardInterrupt:
             pass
+
+        tf = time.time() # 学習終了時刻
+        log.time = tf - t0
         return log
     
     def test(self, X:np.ndarray, T:np.ndarray, log:"logger"=None) -> None:
@@ -251,7 +267,6 @@ class loss_func:
         損失関数の値E(z)そのもの.
         Parameter(s)
         ------------
-        net: mlp
         t: 教師信号
         """
         raise NotImplementedError
@@ -293,8 +308,9 @@ class mul_cross_entropy(cross_entropy):
 class logger:
     """学習経過の記録"""
     loss: Sequence[float] = dataclasses.field(default_factory=list)
-    rate: float = dataclasses.field(default=None)
     count: Sequence[int] = dataclasses.field(default_factory=list)
+    rate: float = dataclasses.field(default=None)
+    time: float = dataclasses.field(default=None)
     #cond: Callable = dataclasses.field(default=lambda m, i: i==0)
 
     def show(self, ax=None, semilog=False, *args, **kwargs):
