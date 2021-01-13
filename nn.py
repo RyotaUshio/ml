@@ -1,7 +1,6 @@
 import numpy as np
 import time
 import dataclasses
-import doctest
 from typing import Sequence, List, Callable
 
 
@@ -56,15 +55,13 @@ class mlp:
         return self[-1].z.copy()
     
     @classmethod
-    def from_num(cls, num: Sequence[int], act_funcs: Sequence["act_func"], sigma:float=0.01, loss=None) -> "mlp":
+    def from_num(cls, num: Sequence[int], act_funcs: Sequence["act_func"], loss=None) -> "mlp":
         """
         各層のニューロン数を表す配列numからlayerオブジェクトとmplオブジェクトを生成する。
         Parameters
         ----------
         num: list
              ネットワークの各層内にいくつのニューロンを生成するか
-        sigma: float
-             重み行列の初期値を生成するガウス分布の標準偏差
         """
         # 出力層は0オリジンでl = L層目
         L = len(num) - 1
@@ -105,7 +102,9 @@ class mlp:
               batch_size=1,
               log_cond:Callable=lambda m, i: i == 0):
         """
-        訓練データ集合(X: 入力, T: 出力)をネットワークに学習させる.
+        訓練データ集合(X: 入力, T: 出力)をネットワークに学習させる. エポック数がmax_iterを超えるか、
+        シグナルSIGINT(Ctrl+C)が送出されると学習を打ち切る。
+
         Parameters
         ----------
         X, T: 訓練データ集合               
@@ -115,7 +114,7 @@ class mlp:
             直近1エポックの損失の平均がこれ未満になれば、max_iterエポック未満でも学習を打ち切る
         max_iter:
             最大反復エポック数
-        batch_size: ミニバッチ学習に用いるミニバッチのサイズ (ミニバッチ学習はうまく動作しなかったので当面使わない)
+        batch_size: ミニバッチ学習に用いるミニバッチのサイズ (ミニバッチ学習はうまく動作しなかったので当面1に固定)
         log_cond: カウンタ変数m, iがどんな条件を満たしたときに損失関数の値などをlogに記録するか
 
         Returns
@@ -137,18 +136,17 @@ class mlp:
             t0 = time.time() # 学習開始時刻
             
             for m in range(max_iter):
-                #np.random.shuffle(X)
                 for i in range(int(np.ceil(len(X)/batch_size))):
-                    # if m > 0 and np.mean(log.loss[-N:]) < eps:
+                    # if m > 0 and np.mean(log.loss[-N:]) < eps: # 速度向上のためコメントアウト
                     #     break
-                    # ミニバッチ
+                    # ミニバッチを用意
                     x = X[i*batch_size:(i+1)*batch_size]
                     t = T[i*batch_size:(i+1)*batch_size]
                     # 順伝播
                     self.forward_prop(x)
                     # 逆伝播
                     self.back_prop(t)
-                    # 勾配法による重み更新
+                    # AdaGradによる重み更新
                     for l in range(1, L+1):
                         dJdW = self[l-1].z.T @ self[l].delta
                         dJdb = np.sum(self[l].delta, axis=0)
@@ -158,6 +156,7 @@ class mlp:
                         self[l].b += -eta*dJdb / (np.sqrt(h_b[l]) + 1e-7)
 
                     if log_cond(m, i):
+                        # log出力
                         log.loss.append(self.loss(t))
                         log.count.append(count)
                         print(f"m = {m}, i = {i}, J = {log.loss[-1]}")
