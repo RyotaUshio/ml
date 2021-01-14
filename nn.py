@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import time
 import dataclasses
 from typing import Type, Sequence, List, Callable
@@ -153,7 +154,7 @@ class mlp:
               eps:float=-np.inf,
               max_epoch:int=10000,
               batch_size=1,
-              log_cond:Callable=lambda m, i: i == 0,
+              log_cond:Callable=lambda count: True,
               color='tab:blue',
               show='both') -> "logger":
         """
@@ -182,43 +183,20 @@ class mlp:
         h_W = [0 for _ in range(len(self))] # 重み行列用
         h_b = [0 for _ in range(len(self))] # バイアス用
         # 途中経過の記録
-        log = logger()
+        log = logger(cond=log_cond, N=len(X), how_to_show=show)
         # 反復回数
         count = 0
         # 学習開始時刻
-
         t0 = time.time()
-        # 損失の変化をどう表示するか
-        if show == 'both':
-            plot, stdout = True, True
-        elif show == 'plot':
-            plot, stdout = True, False
-        elif show == 'stdout':
-            plot, stdout = False, True
-        elif show == 'off':
-            plot, stdout = False, False
-        else:
-            raise ValueError("argument 'show' must be either of the following: 'both', 'plot', 'stdout' or 'off'")
-
-        if plot:
-            # 損失のグラフをリアルタイムで
-            fig, ax = plt.subplots()
-            ax.set(xlabel="iteration", ylabel="loss")
-            plt.ion()
 
         try:            
             for m in range(max_epoch):
 
-                # シャッフルすると損失がまったく減少しなくなる. なぜ??
-                # np.random.shuffle(X)
+                i_max = int(np.ceil(len(X)/batch_size))
+                idx = list(range(i_max))
+                np.random.shuffle(idx)
                 
-                if plot:
-                    ax.set_xlim(0, len(X)*(m+1))
-                    ax.set_ylim(0, 0.3)
-                
-                for i in range(int(np.ceil(len(X)/batch_size))):
-                    # if m > 0 and np.mean(log.loss[-N:]) < eps: # 速度向上のためコメントアウト
-                    #     break
+                for i in idx:
                     # ミニバッチを用意
                     x = X[i*batch_size:(i+1)*batch_size]
                     t = T[i*batch_size:(i+1)*batch_size]
@@ -235,18 +213,7 @@ class mlp:
                         self[l].W += -eta*dJdW / (np.sqrt(h_W[l]) + 1e-7)
                         self[l].b += -eta*dJdb / (np.sqrt(h_b[l]) + 1e-7)
 
-                    if log_cond(m, i):
-                        # log出力
-                        log.loss.append(self.loss(t))
-                        log.count.append(count)
-                        logstr = f"Epoch {m:3}, Pattern {i:5}/{len(X)}: Loss = {log.loss[-1]:.3e}"
-                        if stdout:
-                            print(logstr)
-                        if plot:
-                            ax.plot(log.count[-2:], log.loss[-2:], c=color)
-                            ax.set_title(logstr)
-                            plt.show()
-                            plt.pause(0.02)
+                    log.rec_and_show(net=self, t=t, count=count, color=color)
 
                     count += 1
     
@@ -348,7 +315,7 @@ class softmax(act_func):
     
 @dataclasses.dataclass
 class loss_func:
-    net: mlp = dataclasses.field(default=None)
+    net: mlp = dataclasses.field(default=None, repr=False)
     
     """損失関数"""    
     def __call__(self, t):
@@ -400,8 +367,62 @@ class logger:
     count: Sequence[int] = dataclasses.field(default_factory=list)
     rate: float = dataclasses.field(default=None)
     time: float = dataclasses.field(default=None)
-    #cond: Callable = dataclasses.field(default=lambda m, i: i==0)
+    cond: Callable = dataclasses.field(default=lambda count: True)
+    N: int = dataclasses.field(default=None)
+    how_to_show: str = dataclasses.field(default='plot')
 
+    def __post_init__(self):
+        # 損失の変化をどう表示するか
+        if self.how_to_show == 'both':
+            self.plot, self.stdout = True, True
+        elif self.how_to_show == 'plot':
+            self.plot, self.stdout = True, False
+        elif self.how_to_show == 'stdout':
+            self.plot, self.stdout = False, True
+        elif self.how_to_show == 'off':
+            self.plot, self.stdout = False, False
+        else:
+            raise ValueError("logger.how_to_show must be either of the following: 'both', 'plot', 'stdout' or 'off'")
+
+        if self.plot:
+            # 損失のグラフをリアルタイムで
+            self.fig, self.ax = plt.subplots(constrained_layout=True)
+            self.ax.set(xlabel="iteration", ylabel="loss")
+            self.secax = self.ax.secondary_xaxis('top',
+                                                 functions=(lambda count: count/self.N,
+                                                            lambda epoch: epoch*self.N))
+            # self.secax.set_xlabel('epoch')
+            self.secax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+            self.secax.xaxis.set_minor_locator(ticker.MultipleLocator(0.5))
+            self.secax.xaxis.set_major_formatter(ticker.NullFormatter())
+            self.secax.xaxis.set_minor_formatter(ticker.FormatStrFormatter('epoch %d'))
+            self.secax.tick_params(axis='x', which='minor', top=False)
+            self.secax.tick_params(axis='x', which='major', length=10)
+            plt.ion()
+
+
+
+    def rec_and_show(self, net, t, count, color):
+        if self.cond(count):
+            # log出力
+            self.loss.append(net.loss(t))
+            self.count.append(count)
+            # 現在のエポック(epoch)とエポック内で何番目のパターンか(i)を計算
+            epoch = count // self.N
+            i = count % self.N
+            
+            logstr = f"Epoch {epoch:3}, Pattern {i:5}/{self.N}: Loss = {self.loss[-1]:.3e}"
+            
+            if self.stdout:
+                print(logstr)
+
+            if self.plot:
+                self.ax.set_xlim(0, self.N*(epoch+1))
+                self.ax.plot(self.count[-2:], self.loss[-2:], c=color)
+                self.ax.set_title(logstr)
+                plt.show()
+                plt.pause(0.02)
+    
     def show(self, ax=None, semilog=False, *args, **kwargs):
         if ax is None:
             ax = plt.gca()
@@ -409,7 +430,6 @@ class logger:
         ax.set(xlabel="iteration", ylabel="loss", *args, **kwargs)
         if semilog:
             ax.set_yscale("log")
-        #plt.show()
 
     def to_file(self, fname):
         with open(fname, "w") as f:
