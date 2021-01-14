@@ -1,7 +1,8 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import time
 import dataclasses
-from typing import Sequence, List, Callable
+from typing import Type, Sequence, List, Callable
 
 
 
@@ -20,14 +21,62 @@ class layer:
     z: np.ndarray = dataclasses.field(init=False)
     # 各ニューロンの誤差を並べたベクトル
     delta: np.ndarray = dataclasses.field(init=False)
+    ## 連結リスト的な表現
+    # 前のlayerへの参照
+    prev: "layer" = dataclasses.field(default=None)
+    # 後ろのlayerへの参照
+    next: "layer" = dataclasses.field(default=None)
     
     def __post_init__(self):
         self.u = np.zeros((1, self.size))
         self.z = np.zeros((1, self.size))
         self.delta = np.zeros((1, self.size))
 
-        
+    def is_first(self):
+        return (self.prev is None) and (self.next is not None)
+    
+    def is_last(self):
+        return (self.prev is not None) and (self.next is None)
 
+    def is_hidden(self):
+        return (self.prev is not None) and (self.next is not None)
+
+    def fire(self, input:np.ndarray) -> np.ndarray:
+        """
+        inputを入力として層内のニューロンを発火させる.
+        
+        Parameter
+        ---------
+        input: 層内の各ニューロンへの入力信号を横に並べたベクトル
+
+        Return
+        ------
+        inputを入力として活性self.uと出力self.zを更新したのち、self.zへの参照を返す
+        """
+        self.u = input @ self.W + self.b
+        self.z = self.h( self.u )
+        return self.z
+        
+    def prop(self) -> None:
+        """
+        入力層が現在保持している信号zを使って、ネットワークの入力層から自分自身まで信号を順伝播させる.
+        """
+        if self.is_first():
+            return self.z
+        else:
+            return self.fire(self.prev.prop())
+
+    def calc_delta(self) -> None:
+        """
+        出力層が現在保持している誤差deltaを使って、ネットワークの出力層から自分自身まで誤差を逆伝播させる.
+        """
+        if self.is_last():
+            return self.delta
+        else:
+            self.delta = self.h.grad_from_val(self.z) * (self.next.calc_delta() @ self.next.W.T)
+            return self.delta
+
+    
 @dataclasses.dataclass
 class mlp:
     """
@@ -37,9 +86,16 @@ class mlp:
     loss: "loss_func" = dataclasses.field(default=None) # 損失関数
 
     def __post_init__(self):
+        ## ネットワークの損失関数を設定
         if self.loss is None:
-            self.loss = self[-1].h.loss
+            self.loss = self[-1].h.loss()
         self.loss.net = self
+
+        ## 層間の連結リストとしての構造を構築する
+        for l in range(1, len(self)):
+            # 0層目と1層目, 1層目と2層目, ..., L-1層目とL層目とを連結する
+            self[l].prev = self[l-1]
+            self[l-1].next = self[l]    
 
     def __len__(self):
         return len(self.layers)
@@ -81,26 +137,25 @@ class mlp:
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
         self[0].z = x
-        for l in range(1, len(self)):
-            self[l].u = self[l-1].z @ self[l].W + self[l].b
-            self[l].z = self[l].h( self[l].u )
+        return self[-1].prop()
             
     def back_prop(self, t:np.ndarray) -> None:
         """教師信号ベクトルtをもとに誤差逆伝播法による学習を行う."""
         # 出力層の誤差はすぐに計算できる.
         self[-1].delta = self.loss.error(t)
         # それを使って誤差を順次前の層へ逆伝播させていく
-        for l in range(len(self)-2, 0, -1):
-            self[l].delta = self[l].h.grad_from_val(self[l].z) * (self[l+1].delta @ self[l+1].W.T)
+        self[0].calc_delta()
             
     def train(self,
               X:np.ndarray,
               T:np.ndarray,
               eta:float=0.005,
               eps:float=-np.inf,
-              max_iter:int=10000,
+              max_epoch:int=10000,
               batch_size=1,
-              log_cond:Callable=lambda m, i: i == 0):
+              log_cond:Callable=lambda m, i: i == 0,
+              color='tab:blue',
+              show='both') -> "logger":
         """
         訓練データ集合(X: 入力, T: 出力)をネットワークに学習させる. エポック数がmax_iterを超えるか、
         シグナルSIGINT(Ctrl+C)が送出されると学習を打ち切る。
@@ -112,7 +167,7 @@ class mlp:
             学習係数を表すパラメータ
         eps:
             直近1エポックの損失の平均がこれ未満になれば、max_iterエポック未満でも学習を打ち切る
-        max_iter:
+        max_epoch:
             最大反復エポック数
         batch_size: ミニバッチ学習に用いるミニバッチのサイズ (ミニバッチ学習はうまく動作しなかったので当面1に固定)
         log_cond: カウンタ変数m, iがどんな条件を満たしたときに損失関数の値などをlogに記録するか
@@ -121,21 +176,46 @@ class mlp:
         -------
         log: 学習の途中経過を記録したloggerオブジェクト
         """
-        # 入力層が第0層, 出力層が第L層
-        L = len(self)-1
-        # 途中経過の記録
-        log = logger()
         # 訓練データの総数
         N = len(X)
         # AdaGradで使う、dJ/dWやdJ/dbの二乗和を保持する変数
-        h_W = [0 for _ in range(L+1)] # 重み行列用
-        h_b = [0 for _ in range(L+1)] # バイアス用
-        
-        try:
-            count = 0 # 反復回数
-            t0 = time.time() # 学習開始時刻
-            
-            for m in range(max_iter):
+        h_W = [0 for _ in range(len(self))] # 重み行列用
+        h_b = [0 for _ in range(len(self))] # バイアス用
+        # 途中経過の記録
+        log = logger()
+        # 反復回数
+        count = 0
+        # 学習開始時刻
+
+        t0 = time.time()
+        # 損失の変化をどう表示するか
+        if show == 'both':
+            plot, stdout = True, True
+        elif show == 'plot':
+            plot, stdout = True, False
+        elif show == 'stdout':
+            plot, stdout = False, True
+        elif show == 'off':
+            plot, stdout = False, False
+        else:
+            raise ValueError("argument 'show' must be either of the following: 'both', 'plot', 'stdout' or 'off'")
+
+        if plot:
+            # 損失のグラフをリアルタイムで
+            fig, ax = plt.subplots()
+            ax.set(xlabel="iteration", ylabel="loss")
+            plt.ion()
+
+        try:            
+            for m in range(max_epoch):
+
+                # シャッフルすると損失がまったく減少しなくなる. なぜ??
+                # np.random.shuffle(X)
+                
+                if plot:
+                    ax.set_xlim(0, len(X)*(m+1))
+                    ax.set_ylim(0, 0.3)
+                
                 for i in range(int(np.ceil(len(X)/batch_size))):
                     # if m > 0 and np.mean(log.loss[-N:]) < eps: # 速度向上のためコメントアウト
                     #     break
@@ -147,7 +227,7 @@ class mlp:
                     # 逆伝播
                     self.back_prop(t)
                     # AdaGradによる重み更新
-                    for l in range(1, L+1):
+                    for l in range(1, len(self)):
                         dJdW = self[l-1].z.T @ self[l].delta
                         dJdb = np.sum(self[l].delta, axis=0)
                         h_W[l] += dJdW * dJdW
@@ -159,7 +239,14 @@ class mlp:
                         # log出力
                         log.loss.append(self.loss(t))
                         log.count.append(count)
-                        print(f"m = {m}, i = {i}, J = {log.loss[-1]}")
+                        logstr = f"Epoch {m:3}, Pattern {i:5}/{len(X)}: Loss = {log.loss[-1]:.3e}"
+                        if stdout:
+                            print(logstr)
+                        if plot:
+                            ax.plot(log.count[-2:], log.loss[-2:], c=color)
+                            ax.set_title(logstr)
+                            plt.show()
+                            plt.pause(0.02)
 
                     count += 1
     
@@ -177,7 +264,6 @@ class mlp:
         correct = 0
         for i in range(len(X)):
             if isinstance(self[-1].h, softmax):
-                #self.forward_prop(X[[i]])
                 if np.argmax(T[i]) == np.argmax(self(X[[i]])):
                     correct += 1
 
@@ -197,7 +283,7 @@ class mlp:
 class act_func:
     """各層の活性化関数"""
     param: float = 1.0
-    loss: "loss_func" = dataclasses.field(default=None)
+    loss: Type["loss_func"] = dataclasses.field(default=None) # 出力層の活性化関数として用いた場合の対応する損失関数クラス
 
     def __call__(self, u):
         """活性化関数の値h(u)そのもの."""
@@ -212,7 +298,7 @@ class sigmoid(act_func):
     """シグモイド関数"""
     def __init__(self):
         super().__init__()
-        self.loss = cross_entropy()
+        self.loss = cross_entropy
         
     def __call__(self, u):
         return 0.5 * (1.0 + np.tanh(0.5 * self.param * u))
@@ -225,6 +311,10 @@ class sigmoid(act_func):
     
 class linear(act_func):
     """線形関数"""
+    def __init__(self):
+        super().__init__()
+        self.loss = mean_square
+
     def __call__(self, u):
         return u
     
@@ -245,7 +335,7 @@ class softmax(act_func):
     """ソフトマックス関数"""
     def __init__(self):
         super().__init__()
-        self.loss = mul_cross_entropy()
+        self.loss = mul_cross_entropy
         
     def __call__(self, u):
         tmp = u - u.max()
@@ -315,10 +405,11 @@ class logger:
     def show(self, ax=None, semilog=False, *args, **kwargs):
         if ax is None:
             ax = plt.gca()
-        ax.plot(self.count, self.loss, *args, **kwargs)
-        ax.set(xlabel="iteration", ylabel="loss")
+        ax.plot(self.count, self.loss)
+        ax.set(xlabel="iteration", ylabel="loss", *args, **kwargs)
         if semilog:
             ax.set_yscale("log")
+        #plt.show()
 
     def to_file(self, fname):
         with open(fname, "w") as f:
