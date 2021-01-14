@@ -6,6 +6,9 @@ from importlib import reload
 import nn
 reload(nn)
 
+
+## MNISTデータセットの整形用の諸関数
+
 def one_of_K(labels:np.ndarray):
     """
     正解ラベルの集合labelsを1 of K符号化法によりベクトル化する
@@ -39,17 +42,20 @@ def convert(images, labels, rate=1):
     return X, T
 
 def add_noise(image, prob):
+    """画像imageに, [0,1]上の一様分布からサンプリングしたprob %のノイズを付加する. in-placeな処理."""
     noise_num = int(image.size * prob)
     idx = np.random.randint(0, image.size, noise_num)
     image[idx] = np.random.rand(noise_num)
 
 def add_noise_all(images, prob):
+    """imagesに含まれるすべての画像imageに対してadd_noiseと同様のノイズを付加し、新しいオブジェクトとして返す. 非in-inplace."""
     cp = images.copy()
     for image in cp:
         add_noise(image, prob)
     return cp
 
 def img_show(image, ax, shape=None):
+    """画像imageをaxに表示・可視化する. """
     if shape is None:
         tmp = int(np.sqrt(image.size))
         shape = (tmp, tmp)
@@ -58,6 +64,7 @@ def img_show(image, ax, shape=None):
     ax.yaxis.set_visible(False)
 
 def down_sample(image, rate):
+    """画像imageを1/rateにダウンサンプリングして返す. """
     hi = int(np.ceil(image.shape[0]/rate))
     wid = int(np.ceil(image.shape[1]/rate))
     ret = np.zeros((hi, wid))
@@ -66,13 +73,14 @@ def down_sample(image, rate):
             ret[i][j] = image[i*rate][j*rate]
     return ret
     
-def mnist(prob:float=0, n_layer:int=1, n_neuron:int=196,
+def mnist(prob:float=0, n_layer:int=1, n_neuron:int=None,
           eta:float=0.005,
           eps:float=0.02,
-          max_iter:int=20,
+          max_epoch:int=20,
           log_cond:Callable=lambda m, i: i%1000==0,
           *args, **kwargs):
     """
+    MNISTデータセット用のMLPのインターフェース. 
     10クラス分類用のmlpオブジェクトを生成し、MNISTデータセットを学習させ、そのmlpオブジェクトとlogを返す。
     Parameters
     ----------
@@ -101,15 +109,17 @@ def mnist(prob:float=0, n_layer:int=1, n_neuron:int=196,
     # 出力次元数
     K = 10
     # 各層のニューロンの数
+    if n_neuron is None:
+        n_neuron = d
     num = [d] + [n_neuron for _ in range(n_layer)] + [K]
     # mlpオブジェクトを生成
-    net = nn.mlp.from_num(num=num, act_funcs=act_funcs, loss=nn.mul_cross_entropy())
+    net = nn.mlp.from_num(num=num, act_funcs=act_funcs)#, loss=nn.mul_cross_entropy())
 
     # 学習を実行
     log = net.train(X_train_, T_train, 
                     eta=eta,
                     eps=eps,
-                    max_iter=max_iter,
+                    max_epoch=max_epoch,
                     log_cond=log_cond, 
                     *args, **kwargs
     )
@@ -124,9 +134,12 @@ def mnist(prob:float=0, n_layer:int=1, n_neuron:int=196,
     return net, log
 
 
-first=True
+
+### MNISTデータを読み込む
+first=True # インタプリタから再読み込みするときはコメントアウトする。
+rate = 2
 if first:
     (train_images, train_labels), (test_images, test_labels) = keras.datasets.mnist.load_data()
-    X_train, T_train = convert(train_images, train_labels, 2)
-    X_test, T_test = convert(test_images, test_labels, 2)
+    X_train, T_train = convert(train_images, train_labels, rate)
+    X_test, T_test = convert(test_images, test_labels, rate)
     first = False
