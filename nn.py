@@ -33,14 +33,20 @@ class layer:
         self.z = np.zeros((1, self.size))
         self.delta = np.zeros((1, self.size))
 
-    def is_first(self):
+    def is_first(self) -> bool:
         return (self.prev is None) and (self.next is not None)
     
-    def is_last(self):
+    def is_last(self) -> bool:
         return (self.prev is not None) and (self.next is None)
 
-    def is_hidden(self):
+    def is_hidden(self) -> bool:
         return (self.prev is not None) and (self.next is not None)
+
+    def is_unconnected(self) -> bool:
+        return (self.prev is None) and (self.next is None)
+
+    def is_connected(self) -> bool:
+        return not self.is_unconnected()
 
     def fire(self, input:np.ndarray) -> np.ndarray:
         """
@@ -391,18 +397,18 @@ class logger:
             self.secax = self.ax.secondary_xaxis('top',
                                                  functions=(lambda count: count/self.N,
                                                             lambda epoch: epoch*self.N))
-            # self.secax.set_xlabel('epoch')
             self.secax.xaxis.set_major_locator(ticker.MultipleLocator(1))
             self.secax.xaxis.set_minor_locator(ticker.MultipleLocator(0.5))
             self.secax.xaxis.set_major_formatter(ticker.NullFormatter())
             self.secax.xaxis.set_minor_formatter(ticker.FormatStrFormatter('epoch %d'))
             self.secax.tick_params(axis='x', which='minor', top=False)
             self.secax.tick_params(axis='x', which='major', length=10)
+            self.ax.grid(axis='y', linestyle='--')
             plt.ion()
 
 
 
-    def rec_and_show(self, net, t, count, color):
+    def rec_and_show(self, net, t, count, color) -> None:
         if self.cond(count):
             # log出力
             self.loss.append(net.loss(t))
@@ -421,7 +427,7 @@ class logger:
                 self.ax.plot(self.count[-2:], self.loss[-2:], c=color)
                 self.ax.set_title(logstr)
                 plt.show()
-                plt.pause(0.02)
+                plt.pause(0.2)
     
     def show(self, ax=None, semilog=False, *args, **kwargs):
         if ax is None:
@@ -431,7 +437,7 @@ class logger:
         if semilog:
             ax.set_yscale("log")
 
-    def to_file(self, fname):
+    def to_file(self, fname) -> None:
         with open(fname, "w") as f:
             f.write(repr(self))
             

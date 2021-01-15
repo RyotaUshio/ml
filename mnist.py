@@ -7,14 +7,45 @@ import nn
 reload(nn)
 
 
-## MNISTデータセットの整形用の諸関数
+### データを読み込む
+if any([name not in globals() for name in ['cur_data', 'cur_rate']]):
+    cur_data = cur_rate = None
+
+def load(
+        rate = 1,
+        data = keras.datasets.cifar10
+        ):
+    global cur_rate, cur_data
+    
+    if any([name not in globals() for name in [
+            'train_images',
+            'train_labels',
+            'test_images',
+            'test_labels',
+            'X_train',
+            'T_train',
+            'X_test',
+            'T_test']]) or rate != cur_rate or data != cur_data:
+
+        global train_images, train_labels, test_images, test_labels, X_train, T_train, X_test, T_test
+
+        (train_images, train_labels), (test_images, test_labels) = data.load_data()
+        X_train, T_train = convert(train_images, train_labels, rate)
+        X_test, T_test = convert(test_images, test_labels, rate)
+
+        cur_data = data
+        cur_rate = rate
+
+
+## データセットの整形用の諸関数
 
 def one_of_K(labels:np.ndarray):
     """
     正解ラベルの集合labelsを1 of K符号化法によりベクトル化する
     """
     I = np.identity(labels.max() - labels.min() + 1)
-    return [I[i] for i in labels]
+    T = np.array([I[int(i)] for i in labels])
+    return T
 
 def vec2num(one_of_K:Sequence):
     """1 of K符号化されたベクトルone_of_Kをクラス番号に変換する"""
@@ -43,6 +74,8 @@ def convert(images, labels, rate=1):
 
 def add_noise(image, prob):
     """画像imageに, [0,1]上の一様分布からサンプリングしたprob %のノイズを付加する. in-placeな処理."""
+    if prob == 0:
+        return
     noise_num = int(image.size * prob)
     idx = np.random.randint(0, image.size, noise_num)
     image[idx] = np.random.rand(noise_num)
@@ -65,22 +98,30 @@ def img_show(image, ax, shape=None):
 
 def down_sample(image, rate):
     """画像imageを1/rateにダウンサンプリングして返す. """
+    if rate == 1:
+        return image
     hi = int(np.ceil(image.shape[0]/rate))
     wid = int(np.ceil(image.shape[1]/rate))
-    ret = np.zeros((hi, wid))
-    for i in range(hi):
-        for j in range(wid):
-            ret[i][j] = image[i*rate][j*rate]
-    return ret
+    ret = [[image[i*rate][j*rate] for j in range(wid)] for i in range(hi)]
+    return np.array(ret)
+
+def is_rgb(image):
+    return image.ndim == 3
+
+def is_grayscale(image):
+    return image.ndim == 2
+
+def is_flatten(image):
+    return image.ndim == 1
     
-def mnist(prob:float=0, n_layer:int=1, n_neuron:int=None,
-          eta:float=0.005,
-          eps:float=0.02,
-          max_epoch:int=20,
-          log_cond:Callable=lambda m, i: i%1000==0,
-          *args, **kwargs):
+def image_classifier(prob:float=0, n_layer:int=1, n_neuron:int=None,
+                     eta:float=0.005,
+                     eps:float=0.02,
+                     max_epoch:int=20,
+                     log_cond:Callable=lambda count: count%1000==0,
+                     *args, **kwargs):
     """
-    MNISTデータセット用のMLPのインターフェース. 
+    画像データセット用のMLPのインターフェース. 
     10クラス分類用のmlpオブジェクトを生成し、MNISTデータセットを学習させ、そのmlpオブジェクトとlogを返す。
     Parameters
     ----------
@@ -113,7 +154,7 @@ def mnist(prob:float=0, n_layer:int=1, n_neuron:int=None,
         n_neuron = d
     num = [d] + [n_neuron for _ in range(n_layer)] + [K]
     # mlpオブジェクトを生成
-    net = nn.mlp.from_num(num=num, act_funcs=act_funcs)#, loss=nn.mul_cross_entropy())
+    net = nn.mlp.from_num(num=num, act_funcs=act_funcs)
 
     # 学習を実行
     log = net.train(X_train_, T_train, 
@@ -131,15 +172,8 @@ def mnist(prob:float=0, n_layer:int=1, n_neuron:int=None,
     net.test(X_test_, T_test, log=log)
 
     # mlpとログを返す
-    return net, log
+    return net, log        
 
 
-
-### MNISTデータを読み込む
-first=True # インタプリタから再読み込みするときはコメントアウトする。
-rate = 2
-if first:
-    (train_images, train_labels), (test_images, test_labels) = keras.datasets.mnist.load_data()
-    X_train, T_train = convert(train_images, train_labels, rate)
-    X_test, T_test = convert(test_images, test_labels, rate)
-    first = False
+# 後方互換性のためのエイリアス
+#mnist = image_classifier
