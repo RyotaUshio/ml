@@ -17,14 +17,14 @@ if first:
 
     # 各層の活性化関数
     act_funcs = [
-        nn.linear(),
-        nn.sigmoid(),
-        nn.sigmoid()
+        None
+        'sigmoid',
+        'sigmoid'
     ]
     # 各層のニューロン数
     num = [2, 2, 1]
     # mlpオブジェクトを生成
-    net = nn.mlp.from_num(num=num, act_funcs=act_funcs, loss=nn.cross_entropy())
+    net = nn.mlp.from_shape(shape=num, act_funcs=act_funcs, loss=nn.cross_entropy())
     first=False
 
 
@@ -34,7 +34,10 @@ def two_class():
     net.train(X, T, 
               eta=0.1,
               max_epoch=100000,
-              log_cond=lambda m, i: m%1000==0 and i==0
+              log_cond=lambda count: count%1000==0,
+              show='stdout',
+              batch_size=1,
+              optimizer='AdaGrad'
     )
     net.test(X, T)
 
@@ -66,20 +69,23 @@ def mul_class():
 
     # 各層の活性化関数
     act_funcs = [
-        nn.linear(),
-        nn.sigmoid(),
-        nn.softmax()
+        None,
+        'sigmoid',
+        'softmax'
     ]
     # 各層のニューロン数
     num = [2, 2, 2]
     # mlpオブジェクトを生成
-    net = nn.mlp.from_num(num=num, act_funcs=act_funcs)
+    net = nn.mlp.from_shape(shape=num, act_funcs=act_funcs)
 
     # 訓練
     net.train(X, T, 
-              eta=0.005,
+              eta=0.2,
               max_epoch=1000000,
-              log_cond=lambda m, i: m%1000==0
+              log_cond=lambda count: count%1000==0,
+              show='stdout',
+              batch_size=2,
+              optimizer='Momentum'
     )
     # テスト
     net.test(X, T)

@@ -1,11 +1,12 @@
 from mnist import *
 
 eta_ = [0.0005, 0.005, 0.05, 0.5, 1.0, 5.0]
+mnist = image_classifier
 
 # 学習係数の影響
 def learn_rate(etas=eta_):
     for eta in etas:
-        mnist(eta=eta, max_epoch=5, eps=0.001, log_cond=lambda m, i: i%5000==0)[1].to_file(f"./log/eta_{eta}.log")
+        mnist(eta=eta, max_epoch=5, eps=0.001, log_cond=lambda count: count%5000==0)[1].to_file(f"./log/eta_{eta}.log")
 
         
 # ノイズ耐性
