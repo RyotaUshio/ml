@@ -14,25 +14,24 @@ class layer:
     """
     MLPの各層.
     """
-    W: np.ndarray # 前の層から自分への重み行列(結合行列)
-    b: np.ndarray # 前の層から自分へのバイアスベクトル
-    h: "act_func" # 活性化関数
-    size: int     # この層に含まれるニューロンの数
+    W: np.ndarray       # 前の層から自分への重み行列(結合行列)
+    b: np.ndarray       # 前の層から自分へのバイアスベクトル
+    h: "act_func"       # 活性化関数
+    size: int           # この層に含まれるニューロンの数
     # この層の各ニューロンの活性(内部ポテンシャル)を並べたベクトル
-    u: np.ndarray = dataclasses.field(init=False, default=0.0)
+    u: np.ndarray     = dataclasses.field(init=False, default=0.0)
     # 各ニューロンの出力z = h(u)を並べたベクトル
-    z: np.ndarray = dataclasses.field(init=False, default=0.0)
+    z: np.ndarray     = dataclasses.field(init=False, default=0.0)
     # 各ニューロンの誤差を並べたベクトル
     delta: np.ndarray = dataclasses.field(init=False, default=0.0)
     # パラメータに関する損失関数の勾配 dJdW, dJ/db
-    dJdW: np.ndarray = dataclasses.field(init=False, default=0.0)
-    dJdb: np.ndarray = dataclasses.field(init=False, default=0.0)
-    
+    dJdW: np.ndarray  = dataclasses.field(init=False, default=0.0)
+    dJdb: np.ndarray  = dataclasses.field(init=False, default=0.0)
     ## 連結リスト的な表現
     # 前のlayerへの参照
-    prev: "layer" = dataclasses.field(default=None)
+    prev: "layer"     = dataclasses.field(default=None)
     # 後ろのlayerへの参照
-    next: "layer" = dataclasses.field(default=None)
+    next: "layer"     = dataclasses.field(default=None)
     
     def is_first(self) -> bool:
         return (self.prev is None) and (self.next is not None)
@@ -216,7 +215,7 @@ class mlp:
               batch_size=1,
               log_cond:Callable=lambda count: True,
               color='tab:blue',
-              show='both') -> 'logger':
+              how_to_show='both') -> 'logger':
         """
         訓練データ集合(X: 入力, T: 出力)をネットワークに学習させる. エポック数がmax_iterを超えるか、
         シグナルSIGINT(Ctrl+C)が送出されると学習を打ち切る。
@@ -246,7 +245,7 @@ class mlp:
             cond=log_cond,
             n_sample=len(X),
             batch_size=batch_size,
-            how_to_show=show,
+            how_to_show=how_to_show,
             color=color
         )
         # パラメータ更新器
@@ -539,18 +538,18 @@ class mul_cross_entropy(cross_entropy):
 @dataclasses.dataclass
 class logger:
     """学習経過の記録"""
-    net : mlp = dataclasses.field(default=None)
+    net : mlp             = dataclasses.field(default=None)
     loss: Sequence[float] = dataclasses.field(default_factory=list)
-    count: Sequence[int] = dataclasses.field(default_factory=list)
-    iterations : int = dataclasses.field(init=False, default=0)
-    rate: float = dataclasses.field(default=None)
-    time: float = dataclasses.field(default=None)
-    cond: Callable = dataclasses.field(default=lambda count: True)
-    n_sample : int = dataclasses.field(default=None)
-    batch_size: int = dataclasses.field(default=1)
-    how_to_show: str = dataclasses.field(default='plot')
-    color : str = dataclasses.field(default='tab:blue')
-    base : int = dataclasses.field(default=20)
+    count: Sequence[int]  = dataclasses.field(default_factory=list)
+    iterations : int      = dataclasses.field(init=False, default=0)
+    rate: float           = dataclasses.field(default=None)
+    time: float           = dataclasses.field(default=None)
+    cond: Callable        = dataclasses.field(default=lambda count: True)
+    n_sample : int        = dataclasses.field(default=None)
+    batch_size: int       = dataclasses.field(default=1)
+    how_to_show: str      = dataclasses.field(default='plot')
+    color : str           = dataclasses.field(default='tab:blue')
+    base : int            = dataclasses.field(default=20)
 
     def __post_init__(self):
         # 学習開始時間を記録
