@@ -500,7 +500,8 @@ class loss_func:
     """損失関数"""    
     def __call__(self, x, t):
         """
-        損失関数の値E(z)そのもの.
+        損失関数の値.
+
         Parameter(s)
         ------------
         x : 教師データの入力
@@ -582,13 +583,10 @@ class logger:
                            lambda epoch: epoch*self.iter_per_epoch)
             )
             
-            #self.secax.xaxis.set_minor_formatter(ticker.NullFormatter())
             self.secax.xaxis.set_major_locator(ticker.AutoLocator())
             self.secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
             self.secax.set_xlabel('epoch')
 
-            #self.secax.xaxis.set_minor_locator(ticker.MultipleLocator(0.5))
-            #self.secax.tick_params(axis='x', which='minor', top=False)
             self.secax.tick_params(axis='x', which='major', length=10)
             self.secax.set_xlim(left=0)
             self.ax.grid(axis='y', linestyle='--')
