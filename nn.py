@@ -241,12 +241,13 @@ class mlp:
         log: 学習の途中経過を記録したloggerオブジェクト
         """
         # 途中経過の記録
-        log = logger(net=self,
-                     cond=log_cond,
-                     n_sample=len(X),
-                     batch_size=batch_size,
-                     how_to_show=show,
-                     color=color
+        log = logger(
+            net=self,
+            cond=log_cond,
+            n_sample=len(X),
+            batch_size=batch_size,
+            how_to_show=show,
+            color=color
         )
         # パラメータ更新器
         optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta)
