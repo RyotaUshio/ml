@@ -12,7 +12,7 @@ from typing import Type, Sequence, List, Callable
 @dataclasses.dataclass
 class layer:
     """
-    Feedforward neural networkの各層.
+    MLPの各層.
     """
     W: np.ndarray # 前の層から自分への重み行列(結合行列)
     b: np.ndarray # 前の層から自分へのバイアスベクトル
