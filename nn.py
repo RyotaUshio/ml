@@ -206,16 +206,20 @@ class mlp:
             self[l].dJdb = np.mean(self[l].delta, axis=0, keepdims=True)
 
             
-    def train(self,
-              X:np.ndarray,
-              T:np.ndarray,
-              eta:float=0.005,
-              optimizer='AdaGrad',
-              max_epoch:int=10000,
-              batch_size=1,
-              log_cond:Callable=lambda count: True,
-              color='tab:blue',
-              how_to_show='both') -> 'logger':
+    def train(
+            self,
+            X:np.ndarray,
+            T:np.ndarray,
+            eta:float=0.005,
+            optimizer='AdaGrad',
+            max_epoch:int=10000,
+            batch_size=1,
+            log_cond:Callable=lambda count: True,
+            color='tab:blue',
+            how_to_show='both',
+            X_test=None,
+            T_test=None
+    ) -> 'logger':
         """
         訓練データ集合(X: 入力, T: 出力)をネットワークに学習させる. エポック数がmax_iterを超えるか、
         シグナルSIGINT(Ctrl+C)が送出されると学習を打ち切る。
@@ -246,7 +250,9 @@ class mlp:
             n_sample=len(X),
             batch_size=batch_size,
             how_to_show=how_to_show,
-            color=color
+            color=color,
+            X_test=X_test,
+            T_test=T_test
         )
         # パラメータ更新器
         optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta)
@@ -538,22 +544,30 @@ class mul_cross_entropy(cross_entropy):
 @dataclasses.dataclass
 class logger:
     """学習経過の記録"""
-    net : mlp             = dataclasses.field(default=None)
-    loss: Sequence[float] = dataclasses.field(default_factory=list)
-    count: Sequence[int]  = dataclasses.field(default_factory=list)
-    iterations : int      = dataclasses.field(init=False, default=0)
-    rate: float           = dataclasses.field(default=None)
-    time: float           = dataclasses.field(default=None)
-    cond: Callable        = dataclasses.field(default=lambda count: True)
-    n_sample : int        = dataclasses.field(default=None)
-    batch_size: int       = dataclasses.field(default=1)
-    how_to_show: str      = dataclasses.field(default='plot')
-    color : str           = dataclasses.field(default='tab:blue')
-    base : int            = dataclasses.field(default=20)
+    net : mlp                  = dataclasses.field(default=None)
+    loss: Sequence[float]      = dataclasses.field(default_factory=list)
+    count: Sequence[int]       = dataclasses.field(default_factory=list)
+    iterations : int           = dataclasses.field(init=False, default=0)
+    rate: float                = dataclasses.field(default=None)
+    time: float                = dataclasses.field(default=None)
+    cond: Callable             = dataclasses.field(default=lambda count: True)
+    n_sample : int             = dataclasses.field(default=None)
+    batch_size: int            = dataclasses.field(default=1)
+    how_to_show: str           = dataclasses.field(default='plot')
+    color : str                = dataclasses.field(default='tab:blue')
+    base : int                 = dataclasses.field(default=20)
+    X_test : np.ndarray        = dataclasses.field(default=None)
+    T_test : np.ndarray        = dataclasses.field(default=None)
+    compute_test_loss : bool   = dataclasses.field(default=False)
+    test_loss: Sequence[float] = dataclasses.field(default_factory=list)
+    color2 : str               = dataclasses.field(default='tab:orange')
 
     def __post_init__(self):
         # 学習開始時間を記録
         self.t0 = time.time()
+        # 汎化誤差(テストデータに対する誤差)も計算するかどうか
+        if self.X_test is not None and self.T_test is not None:
+            self.compute_test_loss = True
         # 1エポックあたりiteration数
         self.iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
         # 損失の変化をどう表示するか
@@ -602,16 +616,25 @@ class logger:
                 (idx_iter + 1) * self.batch_size,
                 self.n_sample
             )
+            if self.compute_test_loss:
+                self.test_loss.append(self.net.loss(self.X_test, self.T_test))
             
             logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss = {self.loss[-1]:.3e}"
+            if self.compute_test_loss:
+                logstr += f" (train), {self.test_loss[-1]:.3e} (test)"
             
             if self.stdout:
                 print(logstr)
 
             if self.plot:
                 self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.base))*self.base) * self.iter_per_epoch)
+                
+                if self.compute_test_loss:
+                    self.ax.plot(self.count[-2:], self.test_loss[-2:], c=self.color2)
+
                 self.ax.plot(self.count[-2:], self.loss[-2:], c=self.color)
-                self.ax.set_title(logstr)
+                self.ax.set_title(logstr, fontsize=10)
+
                 plt.show()
                 plt.pause(0.1)
 
@@ -621,13 +644,13 @@ class logger:
         self.tf = time.time()
         self.time = self.tf - self.t0
     
-    def show(self, ax=None, semilog=False, *args, **kwargs):
-        if ax is None:
-            ax = plt.gca()
-        ax.plot(self.count, self.loss)
-        ax.set(xlabel="iteration", ylabel="loss", *args, **kwargs)
+    def show(self, semilog=False, *args, **kwargs):
+        if self.ax is None:
+            self.ax = plt.gca()
+        self.ax.plot(self.count, self.loss)
+        self.ax.set(xlabel="iterations", ylabel="loss", *args, **kwargs)
         if semilog:
-            ax.set_yscale("log")
+            self.ax.set_yscale("log")
 
     def to_file(self, fname) -> None:
         with open(fname, "w") as f:

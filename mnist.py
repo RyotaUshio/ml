@@ -128,12 +128,15 @@ def is_grayscale(image):
 def is_flatten(image):
     return image.ndim == 1
     
-def image_classifier(hidden_shape=[],
-                     hidden_act='sigmoid',
-                     eta:float=0.005,
-                     max_epoch:int=20,
-                     log_cond:Callable=lambda count: count%1000==0,
+def image_classifier(hidden_shape=[10],
+                     hidden_act='ReLU',
                      out_act='softmax',
+                     eta:float=0.1,
+                     max_epoch:int=300,
+                     log_cond:Callable=lambda count: count%1000==0,
+                     batch_size=200,
+                     how_to_show='plot',
+                     optimizer='AdaGrad',
                      *args, **kwargs):
     """
     画像データセット用のMLPのインターフェース. 
@@ -157,7 +160,10 @@ def image_classifier(hidden_shape=[],
     log = net.train(X_train, T_train, 
                     eta=eta,
                     max_epoch=max_epoch,
-                    log_cond=log_cond, 
+                    log_cond=log_cond,
+                    batch_size=200,
+                    how_to_show='plot',
+                    optimizer='AdaGrad',
                     *args, **kwargs
     )
     # mlpとログを返す
