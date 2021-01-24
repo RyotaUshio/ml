@@ -130,11 +130,11 @@ class mlp:
     def __iter__(self):
         return iter(self.layers)
 
-    def __call__(self, x):
+    def __call__(self, x) -> np.ndarray:
         self.forward_prop(x)
         return self[-1].z.copy()
 
-    def copy(self):
+    def copy(self) -> 'mlp':
         layers = []
         for l in self:
             if l.is_first():
@@ -144,7 +144,7 @@ class mlp:
         return type(self)(layers, loss=type(self.loss)())
     
     @classmethod
-    def from_shape(cls, shape: Sequence[int], act_funcs: Sequence["act_func"], loss=None, sigmas=None) -> "mlp":
+    def from_shape(cls, shape: Sequence[int], act_funcs: Sequence["act_func"], loss=None, sigmas=None) -> 'mlp':
         """
         各層のニューロン数を表す配列と活性化関数を表す配列からlayerオブジェクトとmplオブジェクトを生成する。
         Parameters
@@ -192,7 +192,7 @@ class mlp:
         self[-1].delta = self[-1].z - t # 出力層の誤差はすぐに計算できる.
         self[1].set_delta()             # それを使って誤差を順次前の層へ逆伝播させていく.
 
-    def set_gradient(self):
+    def set_gradient(self) -> None:
         """順伝播と逆伝播により出力zと誤差deltaが計算済みであることを前提に、
         パラメータに関する損失関数の勾配を計算する. 
 
@@ -216,7 +216,7 @@ class mlp:
               batch_size=1,
               log_cond:Callable=lambda count: True,
               color='tab:blue',
-              show='both') -> "logger":
+              show='both') -> 'logger':
         """
         訓練データ集合(X: 入力, T: 出力)をネットワークに学習させる. エポック数がmax_iterを超えるか、
         シグナルSIGINT(Ctrl+C)が送出されると学習を打ち切る。
@@ -250,31 +250,23 @@ class mlp:
         )
         # パラメータ更新器
         optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta)
-        # 学習開始時刻
-        t0 = time.time()
         
         try:            
             for epoch in range(max_epoch):
                 for X_mini, T_mini in minibatch_iter(X, T, batch_size):
-                    # 順伝播
-                    self.forward_prop(X_mini)
-                    # 逆伝播
-                    self.back_prop(T_mini)
-                    # パラメータに関する損失の勾配を求める
-                    self.set_gradient()
-                    # 勾配法による重み更新
-                    optimizer.update()
-                    # ログ出力
-                    log.rec_and_show(t=T_mini)
+                    self.forward_prop(X_mini)      # 順伝播
+                    self.back_prop(T_mini)         # 逆伝播
+                    self.set_gradient()            # パラメータに関する損失の勾配を求める
+                    optimizer.update()             # 勾配法による重み更新
+                    log()                          # ログ出力
     
         except KeyboardInterrupt:
             pass
 
-        tf = time.time() # 学習終了時刻
-        log.time = tf - t0
+        log.end()
         return log
     
-    def test(self, X:np.ndarray, T:np.ndarray, log:"logger"=None) -> None:
+    def test(self, X:np.ndarray, T:np.ndarray, log:'logger'=None) -> None:
         """
         テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を返す.
         selfは分類器と仮定する. 
@@ -557,8 +549,11 @@ class logger:
     batch_size: int = dataclasses.field(default=1)
     how_to_show: str = dataclasses.field(default='plot')
     color : str = dataclasses.field(default='tab:blue')
+    base : int = dataclasses.field(default=20)
 
     def __post_init__(self):
+        # 学習開始時間を記録
+        self.t0 = time.time()
         # 1エポックあたりiteration数
         self.iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
         # 損失の変化をどう表示するか
@@ -592,10 +587,11 @@ class logger:
             self.ax.grid(axis='y', linestyle='--')
             plt.ion()
 
-    def rec_and_show(self, t, base = 20) -> None:
+    def __call__(self) -> None:
         if self.cond(self.iterations):
             # log出力
-            self.loss.append(self.net.loss(None, t))
+            T_mini = self.net[-1].z - self.net[-1].delta
+            self.loss.append(self.net.loss(None, T_mini))
             self.count.append(self.iterations)
             # 現在のエポック
             epoch = self.iterations // self.iter_per_epoch
@@ -613,13 +609,17 @@ class logger:
                 print(logstr)
 
             if self.plot:
-                self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/base))*base) * self.iter_per_epoch)
+                self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.base))*self.base) * self.iter_per_epoch)
                 self.ax.plot(self.count[-2:], self.loss[-2:], c=self.color)
                 self.ax.set_title(logstr)
                 plt.show()
                 plt.pause(0.1)
 
         self.iterations += 1
+
+    def end(self) -> None:
+        self.tf = time.time()
+        self.time = self.tf - self.t0
     
     def show(self, ax=None, semilog=False, *args, **kwargs):
         if ax is None:
