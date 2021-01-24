@@ -707,12 +707,10 @@ def backprop_loss_grad(net, X, T):
     """Computes gradient of the given MLP's loss function with respect to parameters
     of the specified layer BY BACK-PROP.
     """
-    dJdW = [None for _ in range(len(net))]
-    dJdb = [None for _ in range(len(net))]    
     net.forward_prop(X)
     net.back_prop(T)
-    net.set_gradient(dJdW, dJdb)
-    return dJdW, dJdb
+    net.set_gradient()
+    return [l.dJdW for l in net], [l.dJdb for l in net]
 
     
 def gradient_check(net, X, T):
