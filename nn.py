@@ -19,22 +19,21 @@ class layer:
     h: "act_func" # 活性化関数
     size: int     # この層に含まれるニューロンの数
     # この層の各ニューロンの活性(内部ポテンシャル)を並べたベクトル
-    u: np.ndarray = dataclasses.field(init=False)
+    u: np.ndarray = dataclasses.field(init=False, default=0.0)
     # 各ニューロンの出力z = h(u)を並べたベクトル
-    z: np.ndarray = dataclasses.field(init=False)
+    z: np.ndarray = dataclasses.field(init=False, default=0.0)
     # 各ニューロンの誤差を並べたベクトル
-    delta: np.ndarray = dataclasses.field(init=False)
+    delta: np.ndarray = dataclasses.field(init=False, default=0.0)
+    # パラメータに関する損失関数の勾配 dJdW, dJ/db
+    dJdW: np.ndarray = dataclasses.field(init=False, default=0.0)
+    dJdb: np.ndarray = dataclasses.field(init=False, default=0.0)
+    
     ## 連結リスト的な表現
     # 前のlayerへの参照
     prev: "layer" = dataclasses.field(default=None)
     # 後ろのlayerへの参照
     next: "layer" = dataclasses.field(default=None)
     
-    def __post_init__(self):
-        self.u = np.zeros((1, self.size))
-        self.z = np.zeros((1, self.size))
-        self.delta = np.zeros((1, self.size))
-
     def is_first(self) -> bool:
         return (self.prev is None) and (self.next is not None)
     
@@ -66,23 +65,23 @@ class layer:
         self.z = self.h( self.u )
         return self.z
         
-    def prop(self) -> None:
+    def set_z(self) -> np.ndarray:
         """
         入力層が現在保持している信号zを使って、ネットワークの入力層から自分自身まで信号を順伝播させる.
         """
         if self.is_first():
             return self.z
         else:
-            return self.fire(self.prev.prop())
+            return self.fire(self.prev.set_z())
 
-    def calc_delta(self) -> None:
+    def set_delta(self) -> np.ndarray:
         """
         出力層が現在保持している誤差deltaを使って、ネットワークの出力層から自分自身まで誤差を逆伝播させる.
         """
         if self.is_last():
             return self.delta
         else:
-            self.delta = self.h.val2deriv(self.z) * (self.next.calc_delta() @ self.next.W.T)
+            self.delta = self.h.val2deriv(self.z) * (self.next.set_delta() @ self.next.W.T)
             return self.delta
 
 
@@ -117,7 +116,10 @@ class mlp:
         for l in range(1, len(self)):
             # 0層目と1層目, 1層目と2層目, ..., L-1層目とL層目とを連結する
             self[l].prev = self[l-1]
-            self[l-1].next = self[l]    
+            self[l-1].next = self[l]
+
+        ## 入力層の不要なメンバ変数はNoneにする.
+        self[0].W = self[0].b = self[0].u = self[0].delta = self[0].h = self[0].dJdW = self[0].dJdb = None
 
     def __len__(self):
         return len(self.layers)
@@ -142,7 +144,7 @@ class mlp:
         return type(self)(layers, loss=type(self.loss)())
     
     @classmethod
-    def from_shape(cls, shape: Sequence[int], act_funcs: Sequence["act_func"], loss=None, sigma=None) -> "mlp":
+    def from_shape(cls, shape: Sequence[int], act_funcs: Sequence["act_func"], loss=None, sigmas=None) -> "mlp":
         """
         各層のニューロン数を表す配列と活性化関数を表す配列からlayerオブジェクトとmplオブジェクトを生成する。
         Parameters
@@ -150,41 +152,47 @@ class mlp:
         shape: list
              ネットワークの各層内にいくつのニューロンを生成するか
         """
-        # 出力層は0オリジンでl = L層目
-        L = len(shape) - 1
-        # 重み行列の各要素は標準偏差sigmaのガウス分布からサンプリングされる
-        W = np.array([None] +
-                     [np.random.normal(scale=1.0/np.sqrt(shape[l-1])
-                                       * (np.sqrt(2) if L>=2 and isinstance(act_funcs[1], ReLU) else 1.0), 
-                                       size=(shape[l-1], shape[l]))
-                      for l in range(1, L+1)],
-                     dtype=object)
-        # バイアスは定数初期化.
-        b = np.array([None] + [np.zeros((1, shape[l])) for l in range(1, L+1)],
-                     dtype=object)
-        
-        layers = [layer(size=shape[l], W=W[l], b=b[l], h=act_funcs[l]) for l in range(L+1)]
-        return cls(layers, loss=loss)
+        n_layer = len(shape)
 
-    @classmethod
-    def from_num(cls, *args, **kwargs):
-        """Only exists for backward compatibility. 'From_num' is an old name for 'from_shape.'
-        """
-        if 'num' in kwargs:
-            kwargs['shape'] = kwargs.pop('num')
-        return cls.from_shape(*args, **kwargs)
+        # make sure sigmas is a list
+        if not hasattr(sigmas, '__iter__'):
+            sigmas = [sigmas for _ in range(n_layer)]
+        sigmas = list(sigmas)
+        
+        layers = [layer(size=shape[0], W=None, b=None, h=None)]
+        
+        for l in range(1, n_layer):
+            if sigmas[l]:
+                sigma = sigmas[l]
+            elif isinstance(ACTIVATIONS[act_funcs[l]], ReLU):
+                sigma = np.sqrt(2.0 / shape[l-1]) # Heの初期値
+            else:
+                sigma = np.sqrt(1.0 / shape[l-1]) # Xavierの初期値
+
+            W_shape = (shape[l-1], shape[l])
+            b_shape = (1, shape[l])
+
+            layers.append(
+                layer(
+                    size=shape[l],
+                    W=np.random.normal(scale=sigma, size=W_shape),
+                    b=np.zeros(shape=b_shape),
+                    h=ACTIVATIONS[act_funcs[l]]()
+                )
+            )
+        return cls(layers, loss=loss)
     
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
         self[0].z = x
-        return self[-1].prop()
+        return self[-1].set_z()
             
     def back_prop(self, t:np.ndarray) -> None:
         """教師信号ベクトルtをもとに誤差逆伝播法による学習を行う."""
         self[-1].delta = self[-1].z - t # 出力層の誤差はすぐに計算できる.
-        self[1].calc_delta()            # それを使って誤差を順次前の層へ逆伝播させていく.
+        self[1].set_delta()             # それを使って誤差を順次前の層へ逆伝播させていく.
 
-    def gradient(self, dJdW, dJdb):
+    def set_gradient(self):
         """順伝播と逆伝播により出力zと誤差deltaが計算済みであることを前提に、
         パラメータに関する損失関数の勾配を計算する. 
 
@@ -195,8 +203,8 @@ class mlp:
         """
         n_sample = self[0].z.shape[0]
         for l in range(1, len(self)):
-            dJdW[l] = (self[l-1].z.T @ self[l].delta) / n_sample
-            dJdb[l] = np.mean(self[l].delta, axis=0, keepdims=True)
+            self[l].dJdW = (self[l-1].z.T @ self[l].delta) / n_sample
+            self[l].dJdb = np.mean(self[l].delta, axis=0, keepdims=True)
 
             
     def train(self,
@@ -232,42 +240,30 @@ class mlp:
         -------
         log: 学習の途中経過を記録したloggerオブジェクト
         """
-        # パラメータに関する損失関数の勾配 dJdW, dJ/db
-        dJdW = [None] + [0.0 for _ in range(1, len(self))]
-        dJdb = [None] + [0.0 for _ in range(1, len(self))]
         # 途中経過の記録
-        log = logger(cond=log_cond, N=len(X), batch_size=batch_size, how_to_show=show)
-        # 反復回数
-        count = 0
+        log = logger(net=self,
+                     cond=log_cond,
+                     n_sample=len(X),
+                     batch_size=batch_size,
+                     how_to_show=show)
+        # パラメータ更新器
+        optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta)
         # 学習開始時刻
         t0 = time.time()
         
-        optimizer = OPTIMIZER[optimizer](net=self, eta0=eta)
-        
-        i_max = int(np.ceil(len(X)/batch_size))
-        idx = list(range(i_max))
-
         try:            
             for epoch in range(max_epoch):
-
-                np.random.shuffle(idx)
-                
-                for i in idx:
-                    # ミニバッチを用意
-                    x = X[i*batch_size:(i+1)*batch_size]
-                    t = T[i*batch_size:(i+1)*batch_size]
+                for X_mini, T_mini in minibatch_iter(X, T, batch_size):
                     # 順伝播
-                    self.forward_prop(x)
+                    self.forward_prop(X_mini)
                     # 逆伝播
-                    self.back_prop(t)
+                    self.back_prop(T_mini)
                     # パラメータに関する損失の勾配を求める
-                    self.gradient(dJdW, dJdb)
+                    self.set_gradient()
                     # 勾配法による重み更新
-                    optimizer.update(dJdW, dJdb)
+                    optimizer.update()
                     # ログ出力
-                    log.rec_and_show(net=self, t=t, epoch=epoch, i=i, count=count, color=color)
-
-                    count += 1
+                    log.rec_and_show(t=T_mini, color=color)
     
         except KeyboardInterrupt:
             pass
@@ -279,25 +275,51 @@ class mlp:
     def test(self, X:np.ndarray, T:np.ndarray, log:"logger"=None) -> None:
         """
         テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を返す.
+        selfは分類器と仮定する. 
         """
         correct = 0
-        for i in range(len(X)):
-            if isinstance(self[-1].h, softmax):
+        n_sample = len(X)
+        if self[-1].size > 1:
+            for i in range(n_sample):
                 if np.argmax(T[i]) == np.argmax(self(X[[i]])):
                     correct += 1
-
-            elif isinstance(self[-1].h, sigmoid):
+        else:
+            for i in range(n_sample):
                 ans = 1 if self(X[[i]]) > 0.5 else 0
                 if T[i] == ans:
                     correct += 1
 
-        rate = correct / len(X) * 100
-        print(f"{rate} % correct")
+        rate = correct / n_sample * 100
+        print(f"{rate:.2f} % correct")
         if isinstance(log, logger):
             log.rate = rate
 
 
             
+class minibatch_iter:
+    def __init__(self, X : np.ndarray, T : np.ndarray, batch_size : int):
+        if len(X) != len(T):
+            raise ValueError("'X' and 'T' must have the same length.")
+        self.n_sample = len(X)
+        self.batch_size = batch_size
+        shuffle_idx = np.random.permutation(self.n_sample)
+        self.X = X[shuffle_idx]
+        self.T = T[shuffle_idx]
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if len(self.X) <= 0:
+            raise StopIteration
+        X_mini = self.X[:self.batch_size]
+        T_mini = self.T[:self.batch_size]
+        self.X = self.X[self.batch_size:]
+        self.T = self.T[self.batch_size:]
+        return X_mini, T_mini
+        
+            
+        
 class _optimizer_base:
     """Optimization solvers for MLP training. 
     
@@ -318,24 +340,25 @@ class _optimizer_base:
         self.dWs = [None] + [0 for _ in range(1, len(self.net))] # 重み行列用
         self.dbs = [None] + [0 for _ in range(1, len(self.net))] # バイアス用
 
-    def get_update(self, dJdW, dJdb):
+    def get_update(self):
         """Set new values to`dWs` and `dbs`. Override this method when you create a new subclasses.
         """
         raise NotImplementedError
 
-    def update(self, dJdW, dJdb):
-        self.get_update(dJdW, dJdb)
+    def update(self):
+        self.get_update()
         for layer, dW, db in zip(self.net[1:], self.dWs[1:], self.dbs[1:]):
             layer.W += dW
             layer.b += db
 
         
 class SGD(_optimizer_base):
-    def get_update(self, dJdW, dJdb):
+    def get_update(self):
         for l in range(1, len(self.net)):
-            self.dWs[l] = -self.eta * dJdW[l]
-            self.dbs[l] = -self.eta * dJdb[l]
+            self.dWs[l] = -self.eta * self.net[l].dJdW
+            self.dbs[l] = -self.eta * self.net[l].dJdb
 
+            
 class AdaGrad(_optimizer_base):
     def __init__(self, net, eta0, eps=1e-7):
         super().__init__(net, eta0)
@@ -347,18 +370,17 @@ class AdaGrad(_optimizer_base):
         # 実装の都合上、学習係数を重み用とバイアス用に分ける
         self.eta_W = [None] + [self.eta0 for _ in range(1, len(self.net))]
         self.eta_b = [None] + [self.eta0 for _ in range(1, len(self.net))]
-        
 
-    def get_update(self, dJdW, dJdb):        
+    def get_update(self):        
         for l in range(1, len(self.net)):
-            self.h_W[l] += dJdW[l] * dJdW[l]
-            self.h_b[l] += dJdb[l] * dJdb[l]
+            self.h_W[l] += self.net[l].dJdW * self.net[l].dJdW
+            self.h_b[l] += self.net[l].dJdb * self.net[l].dJdb
 
             self.eta_W[l] = self.eta0 / (np.sqrt(self.h_W[l]) + self.eps)
             self.eta_b[l] = self.eta0 / (np.sqrt(self.h_b[l]) + self.eps)
 
-            self.dWs[l] = -self.eta_W[l] * dJdW[l]
-            self.dbs[l] = -self.eta_b[l] * dJdb[l]
+            self.dWs[l] = -self.eta_W[l] * self.net[l].dJdW
+            self.dbs[l] = -self.eta_b[l] * self.net[l].dJdb
 
 
 class Momentum(_optimizer_base):
@@ -366,10 +388,10 @@ class Momentum(_optimizer_base):
         super().__init__(net, eta0)
         self.momentum = momentum
         
-    def get_update(self, dJdW, dJdb):
+    def get_update(self):
         for l in range(1, len(self.net)):
-            self.dWs[l] = -self.eta * dJdW[l] + self.momentum * self.dWs[l]
-            self.dbs[l] = -self.eta * dJdb[l] + self.momentum * self.dbs[l]
+            self.dWs[l] = -self.eta * self.net[l].dJdW + self.momentum * self.dWs[l]
+            self.dbs[l] = -self.eta * self.net[l].dJdb + self.momentum * self.dbs[l]
 
 
 class Adam(_optimizer_base):
@@ -383,7 +405,7 @@ class LBFGS(_optimizer_base):
         raise NotImplementedError
         
 
-OPTIMIZER = {
+OPTIMIZERS = {
     'SGD'      : SGD,
     'AdaGrad'  : AdaGrad,
     'Momentum' : Momentum,
@@ -437,7 +459,7 @@ class linear(act_func):
 class ReLU(act_func):
     """ReLU"""
     def __call__(self, u):
-        return np.where(u > 0.0, u, 0.0)
+        return np.maximum(u, 0.0)
     
     def val2deriv(self, z):
         return np.where(z > 0.0, 1.0, 0.0)
@@ -455,6 +477,17 @@ class softmax(act_func):
     
     def val2deriv(self, z):
         return Exception("出力層の活性化関数の微分は使わないはず")
+
+
+ACTIVATIONS = {
+    'identity' : linear,
+    'linear'   : linear,
+    'sigmoid'  : sigmoid,
+    'logistic' : sigmoid,
+    'relu'     : ReLU,
+    'ReLU'     : ReLU,
+    'softmax'  : softmax
+}
 
 
     
@@ -484,11 +517,9 @@ class mean_square(loss_func):
     def __call__(self, x, t):
         if x is not None:
             self.net.forward_prop(x)
-
-        norms = 0.5 * np.linalg.norm(self.net[-1].z - t, axis=1)
-        if norms.shape != (len(t),):
-            raise Exception("unexpected shape")
-        return np.mean(norms)
+        batch_size = len(t)
+        SSE = 0.5 * np.linalg.norm(self.net[-1].z - t)**2
+        return SSE / batch_size
     
 class cross_entropy(loss_func):
     def __call__(self, x, t):
@@ -512,16 +543,20 @@ class mul_cross_entropy(cross_entropy):
 @dataclasses.dataclass
 class logger:
     """学習経過の記録"""
+    net : mlp = dataclasses.field(default=None)
     loss: Sequence[float] = dataclasses.field(default_factory=list)
     count: Sequence[int] = dataclasses.field(default_factory=list)
+    iterations : int = dataclasses.field(init=False, default=0)
     rate: float = dataclasses.field(default=None)
     time: float = dataclasses.field(default=None)
     cond: Callable = dataclasses.field(default=lambda count: True)
-    N: int = dataclasses.field(default=None)
+    n_sample : int = dataclasses.field(default=None)
     batch_size: int = dataclasses.field(default=1)
     how_to_show: str = dataclasses.field(default='plot')
 
     def __post_init__(self):
+        # 1エポックあたりiteration数
+        self.iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
         # 損失の変化をどう表示するか
         if self.how_to_show == 'both':
             self.plot, self.stdout = True, True
@@ -537,46 +572,53 @@ class logger:
         if self.plot:
             # 損失のグラフをリアルタイムで
             self.fig, self.ax = plt.subplots(constrained_layout=True)
-            self.ax.set(xlabel="iteration", ylabel="loss")
-            self.secax = self.ax.secondary_xaxis('top',
-                                                 functions=(lambda count: count/self.N,
-                                                            lambda epoch: epoch*self.N))
-            self.secax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-            self.secax.xaxis.set_minor_locator(ticker.MultipleLocator(0.5))
-            self.secax.xaxis.set_major_formatter(ticker.NullFormatter())
-            self.secax.xaxis.set_minor_formatter(ticker.FormatStrFormatter('epoch %d'))
-            self.secax.tick_params(axis='x', which='minor', top=False)
+            self.ax.set(xlabel="iterations", ylabel="loss")
+            self.secax = self.ax.secondary_xaxis(
+                'top',
+                functions=(lambda count: count/self.iter_per_epoch,
+                           lambda epoch: epoch*self.iter_per_epoch)
+            )
+            
+            #self.secax.xaxis.set_minor_formatter(ticker.NullFormatter())
+            self.secax.xaxis.set_major_locator(ticker.AutoLocator())
+            self.secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
+            self.secax.set_xlabel('epoch')
+
+            #self.secax.xaxis.set_minor_locator(ticker.MultipleLocator(0.5))
+            #self.secax.tick_params(axis='x', which='minor', top=False)
             self.secax.tick_params(axis='x', which='major', length=10)
+            self.secax.set_xlim(left=0)
             self.ax.grid(axis='y', linestyle='--')
             plt.ion()
 
-
-
-    def rec_and_show(self, net, t, epoch, i, count, color) -> None:
-        if self.cond(count):
+    def rec_and_show(self, t, color='tab:blue', base = 20) -> None:
+        if self.cond(self.iterations):
             # log出力
-            self.loss.append(net.loss(None, t))
-            self.count.append(count)
-            # 現在のエポック(epoch)とエポック内で何番目のパターンか(i)を計算
-            # epoch = count // self.N # ミニバッチに対応できない
-            i = count % self.N
+            self.loss.append(self.net.loss(None, t))
+            self.count.append(self.iterations)
+            # 現在のエポック
+            epoch = self.iterations // self.iter_per_epoch
+            # epoch内で何番目のiterationか
+            idx_iter = self.iterations % self.iter_per_epoch
+            # epoch内で何番目のパターンか
+            idx_sample = min(
+                (idx_iter + 1) * self.batch_size,
+                self.n_sample
+            )
             
-            logstr = f"Epoch {epoch:3}, Pattern {i:5}/{self.N}: Loss = {self.loss[-1]:.3e}"
+            logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss = {self.loss[-1]:.3e}"
             
             if self.stdout:
                 print(logstr)
 
             if self.plot:
-                if epoch == 10:
-                    self.secax.xaxis.set_minor_formatter(ticker.NullFormatter())
-                    self.secax.xaxis.set_major_locator(ticker.AutoLocator())
-                    self.secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
-                    self.secax.set_xlabel('epoch')
-                self.ax.set_xlim(0, self.N*(epoch+1))
+                self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/base))*base) * self.iter_per_epoch)
                 self.ax.plot(self.count[-2:], self.loss[-2:], c=color)
                 self.ax.set_title(logstr)
                 plt.show()
-                plt.pause(0.2)
+                plt.pause(0.1)
+
+        self.iterations += 1
     
     def show(self, ax=None, semilog=False, *args, **kwargs):
         if ax is None:
@@ -669,7 +711,7 @@ def backprop_loss_grad(net, X, T):
     dJdb = [None for _ in range(len(net))]    
     net.forward_prop(X)
     net.back_prop(T)
-    net.gradient(dJdW, dJdb)
+    net.set_gradient(dJdW, dJdb)
     return dJdW, dJdb
 
     
