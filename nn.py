@@ -245,7 +245,9 @@ class mlp:
                      cond=log_cond,
                      n_sample=len(X),
                      batch_size=batch_size,
-                     how_to_show=show)
+                     how_to_show=show,
+                     color=color
+        )
         # パラメータ更新器
         optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta)
         # 学習開始時刻
@@ -263,7 +265,7 @@ class mlp:
                     # 勾配法による重み更新
                     optimizer.update()
                     # ログ出力
-                    log.rec_and_show(t=T_mini, color=color)
+                    log.rec_and_show(t=T_mini)
     
         except KeyboardInterrupt:
             pass
@@ -553,6 +555,7 @@ class logger:
     n_sample : int = dataclasses.field(default=None)
     batch_size: int = dataclasses.field(default=1)
     how_to_show: str = dataclasses.field(default='plot')
+    color : str = dataclasses.field(default='tab:blue')
 
     def __post_init__(self):
         # 1エポックあたりiteration数
@@ -591,7 +594,7 @@ class logger:
             self.ax.grid(axis='y', linestyle='--')
             plt.ion()
 
-    def rec_and_show(self, t, color='tab:blue', base = 20) -> None:
+    def rec_and_show(self, t, base = 20) -> None:
         if self.cond(self.iterations):
             # log出力
             self.loss.append(self.net.loss(None, t))
@@ -613,7 +616,7 @@ class logger:
 
             if self.plot:
                 self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/base))*base) * self.iter_per_epoch)
-                self.ax.plot(self.count[-2:], self.loss[-2:], c=color)
+                self.ax.plot(self.count[-2:], self.loss[-2:], c=self.color)
                 self.ax.set_title(logstr)
                 plt.show()
                 plt.pause(0.1)
