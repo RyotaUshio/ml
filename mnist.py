@@ -1,10 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import keras.datasets.mnist
+import matplotlib.ticker as ticker
+import keras.datasets
 from typing import Sequence, List, Callable
 from importlib import reload
 import nn
 reload(nn)
+from mpl_toolkits.axes_grid1 import Size, Divider
 
 
 ### データを読み込む
@@ -13,7 +15,8 @@ if any([name not in globals() for name in ['cur_data', 'cur_rate']]):
 
 def load(
         rate = 1,
-        data = keras.datasets.cifar10
+        data = keras.datasets.mnist,
+        negative=False
         ):
     global cur_rate, cur_data
     
@@ -33,6 +36,10 @@ def load(
         X_train, T_train = convert(train_images, train_labels, rate)
         X_test, T_test = convert(test_images, test_labels, rate)
 
+        if negative:
+            X_train = 1.0 - X_train
+            X_test = 1.0 - X_test
+
         cur_data = data
         cur_rate = rate
 
@@ -49,7 +56,13 @@ def one_of_K(labels:np.ndarray):
 
 def vec2num(one_of_K:Sequence):
     """1 of K符号化されたベクトルone_of_Kをクラス番号に変換する"""
-    return np.argmax(one_of_K)
+    ndim = one_of_K.ndim
+    if ndim == 1:
+        return np.argmax(one_of_K)
+    elif ndim == 2:
+        return np.array([vec2num(t) for t in one_of_K])
+    else:
+        raise ValueError(f"expected one_of_K.ndim <= 2, got {ndim}")
 
 def normalize(x:np.ndarray, range:Sequence=None):
     """
@@ -87,12 +100,13 @@ def add_noise_all(images, prob):
         add_noise(image, prob)
     return cp
 
-def img_show(image, ax, shape=None):
+def imshow(image, ax=None, shape=None):
     """画像imageをaxに表示・可視化する. """
-    if shape is None:
-        tmp = int(np.sqrt(image.size))
-        shape = (tmp, tmp)
-    ax.imshow(image.reshape(shape), cmap=plt.cm.binary)
+    if ax is None:
+        ax = plt.gca()
+    if image.ndim == 1:
+        image = vec2img(image, shape=shape)
+    ax.imshow(image, cmap=plt.cm.binary)
     ax.xaxis.set_visible(False)
     ax.yaxis.set_visible(False)
 
@@ -114,23 +128,20 @@ def is_grayscale(image):
 def is_flatten(image):
     return image.ndim == 1
     
-def image_classifier(prob:float=0, n_layer:int=1, n_neuron:int=None,
+def image_classifier(hidden_shape=[],
+                     hidden_act='sigmoid',
                      eta:float=0.005,
-                     eps:float=0.02,
                      max_epoch:int=20,
                      log_cond:Callable=lambda count: count%1000==0,
+                     out_act='softmax',
                      *args, **kwargs):
     """
     画像データセット用のMLPのインターフェース. 
     10クラス分類用のmlpオブジェクトを生成し、MNISTデータセットを学習させ、そのmlpオブジェクトとlogを返す。
     Parameters
     ----------
-    prob:float
-         ノイズ割合(0.0--1.0)
-    n_layer:int
-         中間層の層数
-    n_neuron:int
-         中間層1層あたりのニューロン数
+    hidden_shape: Sequence of int
+    hidden_act : {'identity' = 'linear, 'sigmoid' = 'logistic', 'relu' = 'ReLU', 'softmax'}
     others:
          mlpオブジェクトのtrainメソッドの引数
 
@@ -141,39 +152,122 @@ def image_classifier(prob:float=0, n_layer:int=1, n_neuron:int=None,
     log: nn.logger
          学習の途中経過などを記録したnn.loggerオブジェクト
     """
-    # ノイズを付加した入力画像データを作成
-    X_train_, X_test_ = add_noise_all(X_train, prob), add_noise_all(X_test, prob)
-    # 各層の活性化関数
-    act_funcs = [nn.linear()] + [nn.sigmoid() for _ in range(n_layer)] + [nn.softmax()]
-    # 入力次元数
-    d = X_train_[0].size
-    # 出力次元数
-    K = 10
-    # 各層のニューロンの数
-    if n_neuron is None:
-        n_neuron = d
-    num = [d] + [n_neuron for _ in range(n_layer)] + [K]
-    # mlpオブジェクトを生成
-    net = nn.mlp.from_num(num=num, act_funcs=act_funcs)
-
+    net = make_clf(hidden_shape=hidden_shape, hidden_act=hidden_act, out_act=out_act)
     # 学習を実行
-    log = net.train(X_train_, T_train, 
+    log = net.train(X_train, T_train, 
                     eta=eta,
-                    eps=eps,
                     max_epoch=max_epoch,
                     log_cond=log_cond, 
                     *args, **kwargs
     )
-
-    # 性能試験
-    print("train")
-    net.test(X_train_, T_train)
-    print("test")
-    net.test(X_test_, T_test, log=log)
-
     # mlpとログを返す
     return net, log        
 
 
-# 後方互換性のためのエイリアス
-#mnist = image_classifier
+def make_clf(hidden_shape, hidden_act='sigmoid', out_act='softmax'):
+    """hidden_act : {'identity' = 'linear, 'sigmoid' = 'logistic', 'relu' = 'ReLU', 'softmax'}
+    """
+    # 各層の活性化関数
+    act_funcs = (
+        [None] +
+        [hidden_act for _ in range(len(hidden_shape))] +
+        [out_act]
+    )
+    # 入力次元数
+    d = X_train[0].size
+    # 出力次元数
+    K = T_train[0].size
+    shape = [d] + hidden_shape + [K]
+    # mlpオブジェクトを生成
+    net = nn.mlp.from_shape(shape=shape, act_funcs=act_funcs)
+    return net
+
+    
+def hidden_test(net, j):
+    w = normalize(net[1].W[:, j])
+    y = np.argmax(net(w))
+    plt.imshow(w.reshape(28,28), cmap=plt.cm.binary)
+    plt.title(f'{y}?')
+    print(net(w))
+
+def last_test(net, j):
+    w = normalize(net[-1].W[:, j])
+    # y = np.argmax(net(w))
+    plt.imshow(w[2:-2].reshape(4,4), cmap=plt.cm.binary)
+    # plt.title(f'{y}?')
+    # print(net(w))
+    
+def hidden_show(net, figsize=(8-1/4, 11-3/4)):
+    size = figsize
+    rect = (0.15, 0.15, 0.79, 0.79)
+    pad_width = size[0]*.05/9.0 * rect[2]
+    pad_height = pad_width*5
+    im_height = im_width = (size[0] * rect[2] - pad_width*9)/10
+    bar_height = (size[1]*rect[2] - pad_height*10 - im_height)/10
+    bar_width = size[0] * rect[2]
+    
+    fig = plt.figure(figsize=size)
+
+    # fixed size in inch
+    horiz = ([Size.Fixed(im_width), Size.Fixed(pad_width)] * 10)[:-1]
+    vert =  [Size.Fixed(im_height)] + [Size.Fixed(pad_height), Size.Fixed(bar_height)]*10
+    vert[1] = Size.Fixed(pad_height*2)
+
+    # divide the axes rectangle into grid whose size is specified by horiz * vert
+    divider = Divider(fig, rect, horiz, vert, aspect=False)
+    plt.ion()
+
+    reps = rep()
+    w_min, w_max = np.inf, -np.inf
+    for last in range(10):
+        # last: 出力層の各ニューロンの番号
+        ax = fig.add_axes(rect, label=f"bar{last}")
+        ax.set_axes_locator(divider.new_locator(nx=0, nx1=-1, ny=20-2*last))
+        w = net[-1].W[:, last]
+        if w.max() > w_max:
+            w_max = w.max()
+        if w.min() < w_min:
+            w_min = w.min()
+        ax.bar(x=range(10), height=w)
+        ax.plot(np.linspace(-0.5, 9.5, 10), np.full(10, 0), linestyle='--', color='k', linewidth=.8)
+        ax.xaxis.set_visible(False)
+
+    w_range = max(abs(w_max), abs(w_min))
+    for last, ax in zip(range(10), fig.axes):
+        ax.set(xlim=(-0.5, 9.5), ylim=(-w_range, w_range), ylabel=f'{last}')
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.xaxis.set_visible(True)
+
+    for hidden in range(10):
+        # hidden: 中間層の各ニューロンの番号
+        ax = fig.add_axes(rect, label=f"image{hidden}")
+        ax.set_axes_locator(divider.new_locator(nx=hidden*2, ny=0))
+        w = normalize(net[1].W[:, hidden])
+        imshow(w, ax=ax)
+
+    fontsize = 'large'
+    fig.text(rect[0]+0.5*rect[2], 0.12, 'Hidden Units', ha='center', va='center', fontsize=fontsize)
+    fig.text(0.06, rect[1]+0.5*rect[3], 'Output Units', ha='center', va='center', rotation='vertical', fontsize=fontsize)
+
+# def hipass(img, *args, **kwargs):
+#     lowpass = ndimage.gaussian_filter(img, *args, **kwargs)
+#     return img - lowpass
+
+# def usm(img, k, *args, **kwargs):
+#     """Unsharpe Masking."""
+#     return (normalize(img + k * hipass(img, *args, **kwargs)) * 255).astype(np.uint64)
+
+def vec2img(vec, shape=None):
+    """1次元の特徴ベクトルを2次元配列に戻す"""
+    if shape is None:
+        tmp = int(np.sqrt(vec.size))
+        shape = (tmp, tmp)
+    return vec.reshape(shape)
+    
+def rep():
+    if cur_data != keras.datasets.mnist:
+        raise Exception(f"expected cur_data == keras.datasets.mnist, but now cur_data == {cur_data}")
+    reps = []
+    for i, j in zip(range(10), [0, 0, 2, 0, 16, 19, 5, 0, 2, 2]):
+        reps.append(X_train[vec2num(T_train) == i][j])
+    return np.array(reps)
