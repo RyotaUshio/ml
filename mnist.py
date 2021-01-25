@@ -106,7 +106,7 @@ def imshow(image, ax=None, shape=None):
         ax = plt.gca()
     if image.ndim == 1:
         image = vec2img(image, shape=shape)
-    ax.imshow(image, cmap=plt.cm.binary)
+    ax.imshow(image, cmap=plt.cm.gray)
     ax.xaxis.set_visible(False)
     ax.yaxis.set_visible(False)
 
@@ -131,6 +131,7 @@ def is_flatten(image):
 def image_classifier(hidden_shape=[10],
                      hidden_act='ReLU',
                      out_act='softmax',
+                     loss=None,
                      eta:float=0.1,
                      max_epoch:int=300,
                      log_cond:Callable=lambda count: count%1000==0,
@@ -155,13 +156,13 @@ def image_classifier(hidden_shape=[10],
     log: nn.logger
          学習の途中経過などを記録したnn.loggerオブジェクト
     """
-    net = make_clf(hidden_shape=hidden_shape, hidden_act=hidden_act, out_act=out_act)
+    net = make_clf(hidden_shape=hidden_shape, hidden_act=hidden_act, out_act=out_act, loss=loss)
     # 学習を実行
     log = net.train(X_train, T_train, 
                     eta=eta,
                     max_epoch=max_epoch,
                     log_cond=log_cond,
-                    batch_size=200,
+                    batch_size=batch_size,
                     how_to_show='plot',
                     optimizer='AdaGrad',
                     *args, **kwargs
@@ -170,7 +171,7 @@ def image_classifier(hidden_shape=[10],
     return net, log        
 
 
-def make_clf(hidden_shape, hidden_act='sigmoid', out_act='softmax'):
+def make_clf(hidden_shape, hidden_act='sigmoid', out_act='softmax', *args, **kwargs):
     """hidden_act : {'identity' = 'linear, 'sigmoid' = 'logistic', 'relu' = 'ReLU', 'softmax'}
     """
     # 各層の活性化関数
@@ -185,7 +186,7 @@ def make_clf(hidden_shape, hidden_act='sigmoid', out_act='softmax'):
     K = T_train[0].size
     shape = [d] + hidden_shape + [K]
     # mlpオブジェクトを生成
-    net = nn.mlp.from_shape(shape=shape, act_funcs=act_funcs)
+    net = nn.mlp.from_shape(shape=shape, act_funcs=act_funcs, *args, **kwargs)
     return net
 
     
