@@ -6,6 +6,7 @@ import matplotlib.ticker as ticker
 import time
 import dataclasses
 from typing import Type, Sequence, List, Callable
+import warnings
 
 
 
@@ -65,8 +66,7 @@ class layer:
         return self.z
         
     def set_z(self) -> np.ndarray:
-        """
-        入力層が現在保持している信号zを使って、ネットワークの入力層から自分自身まで信号を順伝播させる.
+        """入力層が現在保持している信号zを使って、ネットワークの入力層から自分自身まで信号を順伝播させる.
         """
         if self.is_first():
             return self.z
@@ -74,14 +74,22 @@ class layer:
             return self.fire(self.prev.set_z())
 
     def set_delta(self) -> np.ndarray:
-        """
-        出力層が現在保持している誤差deltaを使って、ネットワークの出力層から自分自身まで誤差を逆伝播させる.
+        """出力層が現在保持している誤差deltaを使って、ネットワークの出力層から自分自身まで誤差を逆伝播させる.
         """
         if self.is_last():
             return self.delta
         else:
             self.delta = self.h.val2deriv(self.z) * (self.next.set_delta() @ self.next.W.T)
             return self.delta
+
+    def set_gradient(self) -> None:
+        """順伝播と逆伝播により出力zと誤差deltaが計算済みであることを前提に、
+        パラメータに関する損失関数の勾配を計算する. 
+        """
+        batch_size = self.z.shape[0]
+        self.dJdW = (self.prev.z.T @ self.delta) / batch_size
+        self.dJdb = np.mean(self.delta, axis=0, keepdims=True)
+
 
 
 class conv_layer(layer):
@@ -101,23 +109,30 @@ class mlp:
     """
     多層パーセプトロン(MLP: Multi Layer Perceptron). 
     """
-    layers: Sequence[layer] # 各層を表すlayerオブジェクトを並べた配列
+    layers: Sequence[layer]                             # 各層を表すlayerオブジェクトを並べた配列
     loss: "loss_func" = dataclasses.field(default=None) # 損失関数
 
     def __post_init__(self):
-        ## ネットワークの損失関数を設定
+        ## ネットワークの損失関数を設定 ##
         if self.loss is None:
-            self.loss = self[-1].h.loss()
-        self.loss.net = self
+            self.loss = self[-1].h.loss()                              # 特に指定されなければ、出力層の活性化関数に対応する損失関数を選ぶ(最尤推定)
+        self.loss.net = self                                           # 損失関数オブジェクトにselfをひもづける
+        self[-1].h.is_canonical = (type(self.loss) == self[-1].h.loss) # 正準連結関数か否か
+        if not self[-1].h.is_canonical:
+            warnings.warn(
+                "You are using a non-canonical link function as the activation function of output layer."
+            )
+
+        ## ネットワークの各層のニューロン数 ##
         self.shape = tuple(l.size for l in self)
 
-        ## 層間の連結リストとしての構造を構築する
+        ## 層間の連結リストとしての構造を構築する ##
         for l in range(1, len(self)):
             # 0層目と1層目, 1層目と2層目, ..., L-1層目とL層目とを連結する
             self[l].prev = self[l-1]
             self[l-1].next = self[l]
 
-        ## 入力層の不要なメンバ変数はNoneにする.
+        ## 入力層の不要なメンバ変数はNoneにする ##
         self[0].W = self[0].b = self[0].u = self[0].delta = self[0].h = self[0].dJdW = self[0].dJdb = None
 
     def __len__(self):
@@ -188,23 +203,15 @@ class mlp:
             
     def back_prop(self, t:np.ndarray) -> None:
         """教師信号ベクトルtをもとに誤差逆伝播法による学習を行う."""
-        self[-1].delta = self[-1].z - t # 出力層の誤差はすぐに計算できる.
-        self[1].set_delta()             # それを使って誤差を順次前の層へ逆伝播させていく.
+        self[-1].delta = self.loss.error(t)  # 出力層の誤差はすぐに計算できる.
+        self[1].set_delta()                  # それを使って誤差を順次前の層へ逆伝播させていく.
 
     def set_gradient(self) -> None:
         """順伝播と逆伝播により出力zと誤差deltaが計算済みであることを前提に、
         パラメータに関する損失関数の勾配を計算する. 
-
-        Parameters
-        ----------
-        dJdW, dJdb : array-like of length len(self)
-            The locations into which the result is stored.
         """
-        n_sample = self[0].z.shape[0]
-        for l in range(1, len(self)):
-            self[l].dJdW = (self[l-1].z.T @ self[l].delta) / n_sample
-            self[l].dJdb = np.mean(self[l].delta, axis=0, keepdims=True)
-
+        for layer in self[1:]:
+            layer.set_gradient()
             
     def train(
             self,
@@ -273,8 +280,7 @@ class mlp:
         return log
     
     def test(self, X:np.ndarray, T:np.ndarray, log:'logger'=None) -> None:
-        """
-        テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を返す.
+        """テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を返す.
         selfは分類器と仮定する. 
         """
         correct = 0
@@ -418,8 +424,9 @@ OPTIMIZERS = {
 @dataclasses.dataclass
 class act_func:
     """各層の活性化関数"""
-    param: float = 1.0
-    loss: Type["loss_func"] = dataclasses.field(default=None) # 出力層の活性化関数として用いた場合の対応する損失関数クラス
+    param : float = 1.0
+    loss : Type["loss_func"] = dataclasses.field(default=None) # 出力層の活性化関数として用いた場合の対応する損失関数クラス
+    is_canonical : bool = dataclasses.field(default=None)
 
     def __call__(self, u):
         """活性化関数の値h(u)そのもの."""
@@ -428,6 +435,33 @@ class act_func:
     def val2deriv(self, z):
         """活性化関数の関数値z = h(u)の関数として導関数h\'(u)の値を計算する."""
         raise NotImplementedError
+
+
+class linear(act_func):
+    """線形関数"""
+    def __init__(self):
+        super().__init__()
+        self.loss = mean_square
+
+    def __call__(self, u):
+        return u
+    
+    def val2deriv(self, z):
+        return 1.0
+
+
+class step(act_func):
+    """ヘヴィサイドのステップ関数"""
+    def __init__(self):
+        super().__init__()
+        self.loss = cross_entropy # sigmoid(a*u)でa -> +inf とした極限だと思えば、交差エントロピーでいいのでは??
+        
+    def __call__(self, u):
+        return np.maximum(np.sign(u), 0.0)
+    
+    def val2deriv(self, z):
+        return 0.0
+    
 
     
 class sigmoid(act_func):
@@ -441,19 +475,6 @@ class sigmoid(act_func):
     
     def val2deriv(self, z, th=0.001):
         return z * (1.0 - z) # np.maximum(z, th) * (1.0 - np.minimum(z, 1-th))
-
-    
-class linear(act_func):
-    """線形関数"""
-    def __init__(self):
-        super().__init__()
-        self.loss = mean_square
-
-    def __call__(self, u):
-        return u
-    
-    def val2deriv(self, z):
-        return 1.0
 
     
 class ReLU(act_func):
@@ -476,17 +497,20 @@ class softmax(act_func):
         return np.exp(tmp) / np.sum(np.exp(tmp), axis=1, keepdims=True)
     
     def val2deriv(self, z):
-        return Exception("出力層の活性化関数の微分は使わないはず")
+        return np.array([np.diag(z[i]) - np.outer(z[i], z[i]) for i in range(len(z))])
+        # raise Exception("出力層の活性化関数の微分は使わないはず")
 
 
 ACTIVATIONS = {
-    'identity' : linear,
-    'linear'   : linear,
-    'sigmoid'  : sigmoid,
-    'logistic' : sigmoid,
-    'relu'     : ReLU,
-    'ReLU'     : ReLU,
-    'softmax'  : softmax
+    'identity'   : linear,
+    'linear'     : linear,
+    'step'       : step,
+    'threshold'  : step,
+    'sigmoid'    : sigmoid,
+    'logistic'   : sigmoid,
+    'relu'       : ReLU,
+    'ReLU'       : ReLU,
+    'softmax'    : softmax
 }
 
 
@@ -511,7 +535,16 @@ class loss_func:
         """
         出力層の誤差delta = 出力層の内部ポテンシャルuによる微分
         """
-        return self.net[-1].z - t
+        last_layer = self.net[-1]
+        delta = last_layer.z - t
+        # mean_squareとsigmoid/softmaxの組み合わせならこれで正しい。ほかの組み合わせでもこれでいいのかは未確認(PRMLのpp.211?まだきちんと追ってない)!!!
+        if not last_layer.h.is_canonical:
+            if isinstance(last_layer.h, softmax):
+                delta = np.matmul(delta.reshape((delta.shape[0], 1, delta.shape[1])), last_layer.h.val2deriv(last_layer.z))
+                delta = delta.reshape((delta.shape[0], -1))
+            else:
+                delta *= last_layer.h.val2deriv(last_layer.z)
+        return delta
 
 
 class mean_square(loss_func):
@@ -540,27 +573,34 @@ class mul_cross_entropy(cross_entropy):
         return -np.sum((t * np.log(self.net[-1].z + 1e-7))) / batch_size
 
 
+LOSSES = {
+    'mean_square'       : mean_square,
+    'cross_entropy'     : cross_entropy,
+    'mul_cross_entropy' : mul_cross_entropy
+}
+
+
     
 @dataclasses.dataclass
 class logger:
     """学習経過の記録"""
-    net : mlp                  = dataclasses.field(default=None)
+    net : mlp                  = dataclasses.field(default=None, repr=False)
     loss: Sequence[float]      = dataclasses.field(default_factory=list)
     count: Sequence[int]       = dataclasses.field(default_factory=list)
-    iterations : int           = dataclasses.field(init=False, default=0)
+    iterations : int           = dataclasses.field(default=0)
     rate: float                = dataclasses.field(default=None)
     time: float                = dataclasses.field(default=None)
-    cond: Callable             = dataclasses.field(default=lambda count: True)
+    cond: Callable             = dataclasses.field(default=lambda count: True, repr=False)
     n_sample : int             = dataclasses.field(default=None)
     batch_size: int            = dataclasses.field(default=1)
-    how_to_show: str           = dataclasses.field(default='plot')
-    color : str                = dataclasses.field(default='tab:blue')
-    base : int                 = dataclasses.field(default=20)
-    X_test : np.ndarray        = dataclasses.field(default=None)
-    T_test : np.ndarray        = dataclasses.field(default=None)
-    compute_test_loss : bool   = dataclasses.field(default=False)
+    how_to_show: str           = dataclasses.field(default='plot', repr=False)
+    color : str                = dataclasses.field(default='tab:blue', repr=False)
+    base : int                 = dataclasses.field(default=20, repr=False)
+    X_test : np.ndarray        = dataclasses.field(default=None, repr=False)
+    T_test : np.ndarray        = dataclasses.field(default=None, repr=False)
+    compute_test_loss : bool   = dataclasses.field(default=False, repr=False)
     test_loss: Sequence[float] = dataclasses.field(default_factory=list)
-    color2 : str               = dataclasses.field(default='tab:orange')
+    color2 : str               = dataclasses.field(default='tab:orange', repr=False)
 
     def __post_init__(self):
         # 学習開始時間を記録
@@ -596,7 +636,7 @@ class logger:
             self.secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
             self.secax.set_xlabel('epoch')
 
-            self.secax.tick_params(axis='x', which='major', length=10)
+            # self.secax.tick_params(axis='x', which='major', length=10)
             self.secax.set_xlim(left=0)
             self.ax.grid(axis='y', linestyle='--')
             plt.ion()
@@ -659,7 +699,7 @@ class logger:
     @classmethod
     def from_file(cls, fname):
         with open(fname) as f:
-            return eval("cls" + f.read().replace("logger", ""))
+            return eval(f.read())
 
 
 def numerical_gradient(func, x, dx=1e-7):
