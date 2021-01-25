@@ -35,7 +35,7 @@ def two_class():
               eta=0.1,
               max_epoch=100000,
               log_cond=lambda count: count%1000==0,
-              show='stdout',
+              how='stdout',
               batch_size=1,
               optimizer='AdaGrad'
     )
@@ -83,7 +83,7 @@ def mul_class():
               eta=0.2,
               max_epoch=1000000,
               log_cond=lambda count: count%1000==0,
-              show='stdout',
+              how='stdout',
               batch_size=2,
               optimizer='Momentum'
     )

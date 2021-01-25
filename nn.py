@@ -224,7 +224,7 @@ class mlp:
             batch_size=1,
             log_cond:Callable=lambda count: True,
             color='tab:blue',
-            how_to_show='both',
+            how='both',
             X_test=None,
             T_test=None
     ) -> 'logger':
@@ -257,7 +257,7 @@ class mlp:
             cond=log_cond,
             n_sample=len(X),
             batch_size=batch_size,
-            how_to_show=how_to_show,
+            how=how,
             color=color,
             X_test=X_test,
             T_test=T_test
@@ -595,7 +595,7 @@ class logger:
     cond: Callable             = dataclasses.field(default=lambda count: True, repr=False)
     n_sample : int             = dataclasses.field(default=None)
     batch_size: int            = dataclasses.field(default=1)
-    how_to_show: str           = dataclasses.field(default='plot', repr=False)
+    how: str           = dataclasses.field(default='plot', repr=False)
     color : str                = dataclasses.field(default='tab:blue', repr=False)
     base : int                 = dataclasses.field(default=20, repr=False)
     X_test : np.ndarray        = dataclasses.field(default=None, repr=False)
@@ -613,16 +613,16 @@ class logger:
         # 1エポックあたりiteration数
         self.iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
         # 損失の変化をどう表示するか
-        if self.how_to_show == 'both':
+        if self.how == 'both':
             self.plot, self.stdout = True, True
-        elif self.how_to_show == 'plot':
+        elif self.how == 'plot':
             self.plot, self.stdout = True, False
-        elif self.how_to_show == 'stdout':
+        elif self.how == 'stdout':
             self.plot, self.stdout = False, True
-        elif self.how_to_show == 'off':
+        elif self.how == 'off':
             self.plot, self.stdout = False, False
         else:
-            raise ValueError("logger.how_to_show must be either of the followings: 'both', 'plot', 'stdout' or 'off'")
+            raise ValueError("logger.how must be either of the followings: 'both', 'plot', 'stdout' or 'off'")
 
         if self.plot:
             # 損失のグラフをリアルタイムで

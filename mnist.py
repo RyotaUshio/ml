@@ -136,7 +136,7 @@ def image_classifier(hidden_shape=[10],
                      max_epoch:int=300,
                      log_cond:Callable=lambda count: count%1000==0,
                      batch_size=200,
-                     how_to_show='plot',
+                     how='plot',
                      optimizer='AdaGrad',
                      *args, **kwargs):
     """
@@ -163,7 +163,7 @@ def image_classifier(hidden_shape=[10],
                     max_epoch=max_epoch,
                     log_cond=log_cond,
                     batch_size=batch_size,
-                    how_to_show='plot',
+                    how='plot',
                     optimizer='AdaGrad',
                     *args, **kwargs
     )
