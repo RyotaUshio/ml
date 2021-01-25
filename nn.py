@@ -194,7 +194,8 @@ class mlp:
                     h=ACTIVATIONS[act_funcs[l]]()
                 )
             )
-        return cls(layers, loss=loss)
+
+        return cls(layers, loss=LOSSES[loss]())
     
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
@@ -576,7 +577,8 @@ class mul_cross_entropy(cross_entropy):
 LOSSES = {
     'mean_square'       : mean_square,
     'cross_entropy'     : cross_entropy,
-    'mul_cross_entropy' : mul_cross_entropy
+    'mul_cross_entropy' : mul_cross_entropy,
+    None                : lambda: None
 }
 
 
