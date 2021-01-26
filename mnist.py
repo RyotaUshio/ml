@@ -132,11 +132,9 @@ def image_classifier(hidden_shape=[10],
                      hidden_act='ReLU',
                      out_act='softmax',
                      loss=None,
-                     eta:float=0.1,
+                     eta0:float=0.1,
                      max_epoch:int=300,
-                     log_cond:Callable=lambda count: count%1000==0,
                      batch_size=200,
-                     how='plot',
                      optimizer='AdaGrad',
                      *args, **kwargs):
     """
@@ -158,17 +156,15 @@ def image_classifier(hidden_shape=[10],
     """
     net = make_clf(hidden_shape=hidden_shape, hidden_act=hidden_act, out_act=out_act, loss=loss)
     # 学習を実行
-    log = net.train(X_train, T_train, 
-                    eta=eta,
-                    max_epoch=max_epoch,
-                    log_cond=log_cond,
-                    batch_size=batch_size,
-                    how='plot',
-                    optimizer='AdaGrad',
-                    *args, **kwargs
+    net.train(X_train, T_train, 
+              eta0=eta0,
+              max_epoch=max_epoch,
+              batch_size=batch_size,
+              optimizer='AdaGrad',
+              *args, **kwargs
     )
-    # mlpとログを返す
-    return net, log        
+    # 学習済みのmlpオブジェクトを返す
+    return net
 
 
 def make_clf(hidden_shape, hidden_act='sigmoid', out_act='softmax', *args, **kwargs):
