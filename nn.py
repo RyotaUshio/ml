@@ -10,29 +10,42 @@ import warnings
 
 
 
-@dataclasses.dataclass
 class layer:
     """
     MLPの各層.
     """
-    W: np.ndarray       # 前の層から自分への重み行列(結合行列)
-    b: np.ndarray       # 前の層から自分へのバイアスベクトル
-    h: "act_func"       # 活性化関数
-    size: int           # この層に含まれるニューロンの数
-    # この層の各ニューロンの活性(内部ポテンシャル)を並べたベクトル
-    u: np.ndarray     = dataclasses.field(init=False, default=0.0)
-    # 各ニューロンの出力z = h(u)を並べたベクトル
-    z: np.ndarray     = dataclasses.field(init=False, default=0.0)
-    # 各ニューロンの誤差を並べたベクトル
-    delta: np.ndarray = dataclasses.field(init=False, default=0.0)
-    # パラメータに関する損失関数の勾配 dJdW, dJ/db
-    dJdW: np.ndarray  = dataclasses.field(init=False, default=0.0)
-    dJdb: np.ndarray  = dataclasses.field(init=False, default=0.0)
-    ## 連結リスト的な表現
-    # 前のlayerへの参照
-    prev: "layer"     = dataclasses.field(default=None)
-    # 後ろのlayerへの参照
-    next: "layer"     = dataclasses.field(default=None)
+    def __init__(self, W:Sequence=None, b:Sequence=None, h:'act_func'=None, size:int=None, first:bool=False):
+        # for an non-input layer
+        if not first:
+            # make sure that all matrices and vectors are a two-dimensional numpy.ndarray
+            self.W = check_twodim(W)
+            self.b = check_twodim(b)
+            # validation of the shape of weight matrix and bias vector
+            if self.W.shape[1] != self.b.shape[1]:
+                raise ValueError(
+                    "Expected self.W.shape[1] == self.b.shape[1], got self.W of shape {self.W.shape} and self.b of shape {self.b.shape}"
+                )
+            # validate and set self.size (number of the neurons included in this layer)
+            if (size is not None) and (self.W.shape[1] != size):
+                raise ValueError("Incompatible size was specified.")
+            self.size = self.W.shape[1]
+            # set the activation function
+            self.h = h
+
+        # for an input layer
+        else:
+            if size is None:
+                raise ValueError(
+                    "The size of an input layer must be specified because it cannot be inferred from W.shape or b.shape"
+                )
+            self.size = size
+            self.W = self.b = self.h = None
+        
+        self.u = self.delta = self.dJdW = self.dJdb = None
+        self.prev = self.next = None
+
+    def __repr__(self):
+        return f"<layer size {self.size} with activation {self.h}>"
     
     def is_first(self) -> bool:
         return (self.prev is None) and (self.next is not None)
@@ -110,8 +123,48 @@ class mlp:
     多層パーセプトロン(MLP: Multi Layer Perceptron). 
     """
     layers: Sequence[layer]                             # 各層を表すlayerオブジェクトを並べた配列
-    loss: "loss_func" = dataclasses.field(default=None) # 損失関数
+    loss: 'loss_func' = dataclasses.field(default=None) # 損失関数
+    log: 'logger' = dataclasses.field(init=False, default=None, repr=False)
 
+    @classmethod
+    def from_shape(cls, shape: Sequence[int], act_funcs: Sequence["act_func"], loss=None, sigmas=None) -> 'mlp':
+        """
+        各層のニューロン数を表す配列と活性化関数を表す配列からlayerオブジェクトとmplオブジェクトを生成する。
+        Parameters
+        ----------
+        shape: list
+             ネットワークの各層内にいくつのニューロンを生成するか
+        """
+        n_layer = len(shape)
+
+        # make sure sigmas is a list
+        if not hasattr(sigmas, '__iter__'):
+            sigmas = [sigmas for _ in range(n_layer)]
+        sigmas = list(sigmas)
+        
+        layers = [layer(size=shape[0], first=True)]
+        
+        for l in range(1, n_layer):
+            if sigmas[l]:
+                sigma = sigmas[l]
+            elif isinstance(ACTIVATIONS[act_funcs[l]], ReLU):
+                sigma = np.sqrt(2.0 / shape[l-1]) # Heの初期値
+            else:
+                sigma = np.sqrt(1.0 / shape[l-1]) # Xavierの初期値
+
+            W_shape = (shape[l-1], shape[l])
+            b_shape = (1, shape[l])
+
+            layers.append(
+                layer(
+                    W=np.random.normal(scale=sigma, size=W_shape),
+                    b=np.zeros(shape=b_shape),
+                    h=ACTIVATIONS[act_funcs[l]]()
+                )
+            )
+
+        return cls(layers, loss=LOSSES[loss]())
+    
     def __post_init__(self):
         ## ネットワークの損失関数を設定 ##
         if self.loss is None:
@@ -155,47 +208,7 @@ class mlp:
                 layers.append(layer(size=l.size, W=None, b=None, h=type(l.h)()))
             else:
                 layers.append(layer(size=l.size, W=l.W.copy(), b=l.b.copy(), h=type(l.h)()))
-        return type(self)(layers, loss=type(self.loss)())
-    
-    @classmethod
-    def from_shape(cls, shape: Sequence[int], act_funcs: Sequence["act_func"], loss=None, sigmas=None) -> 'mlp':
-        """
-        各層のニューロン数を表す配列と活性化関数を表す配列からlayerオブジェクトとmplオブジェクトを生成する。
-        Parameters
-        ----------
-        shape: list
-             ネットワークの各層内にいくつのニューロンを生成するか
-        """
-        n_layer = len(shape)
-
-        # make sure sigmas is a list
-        if not hasattr(sigmas, '__iter__'):
-            sigmas = [sigmas for _ in range(n_layer)]
-        sigmas = list(sigmas)
-        
-        layers = [layer(size=shape[0], W=None, b=None, h=None)]
-        
-        for l in range(1, n_layer):
-            if sigmas[l]:
-                sigma = sigmas[l]
-            elif isinstance(ACTIVATIONS[act_funcs[l]], ReLU):
-                sigma = np.sqrt(2.0 / shape[l-1]) # Heの初期値
-            else:
-                sigma = np.sqrt(1.0 / shape[l-1]) # Xavierの初期値
-
-            W_shape = (shape[l-1], shape[l])
-            b_shape = (1, shape[l])
-
-            layers.append(
-                layer(
-                    size=shape[l],
-                    W=np.random.normal(scale=sigma, size=W_shape),
-                    b=np.zeros(shape=b_shape),
-                    h=ACTIVATIONS[act_funcs[l]]()
-                )
-            )
-
-        return cls(layers, loss=LOSSES[loss]())
+        return type(self)(layers, loss=type(self.loss)())    
     
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
@@ -216,18 +229,14 @@ class mlp:
             
     def train(
             self,
-            X:np.ndarray,
-            T:np.ndarray,
-            eta:float=0.005,
+            X_train:np.ndarray,
+            T_train:np.ndarray,
+            eta0:float=0.005,
             optimizer='AdaGrad',
             max_epoch:int=10000,
             batch_size=1,
-            log_cond:Callable=lambda count: True,
-            color='tab:blue',
-            how='both',
-            X_test=None,
-            T_test=None
-    ) -> 'logger':
+            *args, **kwargs
+    ) -> None:
         """
         訓練データ集合(X: 入力, T: 出力)をネットワークに学習させる. エポック数がmax_iterを超えるか、
         シグナルSIGINT(Ctrl+C)が送出されると学習を打ち切る。
@@ -246,41 +255,33 @@ class mlp:
             最大反復エポック数.
         batch_size: ミニバッチ学習に用いるミニバッチのサイズ. 
         log_cond: カウンタ変数m, iがどんな条件を満たしたときに損失関数の値などをlogに記録するか
-
-        Returns
-        -------
-        log: 学習の途中経過を記録したloggerオブジェクト
         """
         # 途中経過の記録
-        log = logger(
+        self.log = logger(
             net=self,
-            cond=log_cond,
-            n_sample=len(X),
+            n_sample=len(X_train),
             batch_size=batch_size,
-            how=how,
-            color=color,
-            X_test=X_test,
-            T_test=T_test
+            X_train=X_train, T_train=T_train,
+            *args, **kwargs
         )
         # パラメータ更新器
-        optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta)
+        optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta0)
         
         try:            
             for epoch in range(max_epoch):
-                for X_mini, T_mini in minibatch_iter(X, T, batch_size):
+                for X_mini, T_mini in minibatch_iter(X_train, T_train, batch_size):
                     self.forward_prop(X_mini)      # 順伝播
                     self.back_prop(T_mini)         # 逆伝播
                     self.set_gradient()            # パラメータに関する損失の勾配を求める
                     optimizer.update()             # 勾配法による重み更新
-                    log()                          # ログ出力
+                    self.log()                          # ログ出力
     
         except KeyboardInterrupt:
             pass
 
-        log.end()
-        return log
+        self.log.end()
     
-    def test(self, X:np.ndarray, T:np.ndarray, log:'logger'=None) -> None:
+    def test(self, X:np.ndarray, T:np.ndarray, log:bool=True) -> None:
         """テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を返す.
         selfは分類器と仮定する. 
         """
@@ -296,10 +297,10 @@ class mlp:
                 if T[i] == ans:
                     correct += 1
 
-        rate = correct / n_sample * 100
-        print(f"{rate:.2f} % correct")
-        if isinstance(log, logger):
-            log.rate = rate
+        accuracy = correct / n_sample * 100
+        print(f"{accuracy:.2f} % correct")
+        if log:
+            self.log.accuracy = accuracy
 
 
             
@@ -307,6 +308,8 @@ class minibatch_iter:
     def __init__(self, X : np.ndarray, T : np.ndarray, batch_size : int):
         if len(X) != len(T):
             raise ValueError("'X' and 'T' must have the same length.")
+        X = check_twodim(X)
+        T = check_twodim(T)
         self.n_sample = len(X)
         self.batch_size = batch_size
         shuffle_idx = np.random.permutation(self.n_sample)
@@ -590,19 +593,23 @@ class logger:
     loss: Sequence[float]      = dataclasses.field(default_factory=list)
     count: Sequence[int]       = dataclasses.field(default_factory=list)
     iterations : int           = dataclasses.field(default=0)
-    rate: float                = dataclasses.field(default=None)
+    accuracy: float            = dataclasses.field(default=None)
     time: float                = dataclasses.field(default=None)
-    cond: Callable             = dataclasses.field(default=lambda count: True, repr=False)
+    cond: Callable             = dataclasses.field(default=lambda count: count%1000==0, repr=False)
     n_sample : int             = dataclasses.field(default=None)
-    batch_size: int            = dataclasses.field(default=1)
-    how: str           = dataclasses.field(default='plot', repr=False)
+    batch_size: int            = dataclasses.field(default=None)
+    how: str                   = dataclasses.field(default='plot', repr=False)
     color : str                = dataclasses.field(default='tab:blue', repr=False)
     base : int                 = dataclasses.field(default=20, repr=False)
+    X_train : np.ndarray       = dataclasses.field(default=None, repr=False)
+    T_train : np.ndarray       = dataclasses.field(default=None, repr=False)
     X_test : np.ndarray        = dataclasses.field(default=None, repr=False)
     T_test : np.ndarray        = dataclasses.field(default=None, repr=False)
     compute_test_loss : bool   = dataclasses.field(default=False, repr=False)
     test_loss: Sequence[float] = dataclasses.field(default_factory=list)
     color2 : str               = dataclasses.field(default='tab:orange', repr=False)
+    AIC : float                = dataclasses.field(init=False, default=None)
+    BIC : float                = dataclasses.field(init=False, default=None)
 
     def __post_init__(self):
         # 学習開始時間を記録
@@ -683,8 +690,21 @@ class logger:
         self.iterations += 1
 
     def end(self) -> None:
+        # record time elapsed
         self.tf = time.time()
         self.time = self.tf - self.t0
+        # calculate AIC & BIC (This is correct only when using (sigmoid, cross_entropy) or (softmax, mul_cross_entropy).)
+        net = self.net
+        if (isinstance(net.loss, cross_entropy)
+            and
+            net[-1].h.is_canonical):
+            nll = net.loss(self.X_train, self.T_train) * self.n_sample # negative log likelihood
+            n_param = 0                                                # number of parameters in net
+            for layer in net[1:]:
+                n_param += layer.W.size + layer.b.size
+            self.AIC = 2 * nll + 2 * n_param
+            self.BIC = 2 * nll + n_param * np.log(self.n_sample)
+            
     
     def show(self, semilog=False, *args, **kwargs):
         if self.ax is None:
@@ -794,3 +814,18 @@ def gradient_check(net, X, T):
         print(dJdb_bp[l].shape, dJdb_nd[l].shape)
         print(f"layer{l} weight : {np.average(np.abs(dJdW_bp[l] - dJdW_nd[l]))}, {dJdW_bp[l] / dJdW_nd[l]}")
         print(f"layer{l} bias   : {np.average(np.abs(dJdb_bp[l].reshape(1,-1) - dJdb_nd[l]))}, {dJdb_bp[l] / dJdb_nd[l]}")
+
+
+
+def check_twodim(a:np.ndarray=None):
+    """Make sure an array is two-dimensinal.
+    """
+    if a is None:
+        raise TypeError("You have to pass an array-like, not None")
+    a = np.array(a)
+    if a.ndim <= 1:
+        return a.reshape((1, -1))
+    elif a.ndim >= 3:
+        raise ValueError("A three dimensional array was passed.")
+    return a
+
