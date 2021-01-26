@@ -32,7 +32,7 @@ if first:
 def two_class():
     # 訓練
     net.train(X, T, 
-              eta=0.1,
+              eta0=0.1,
               max_epoch=100000,
               log_cond=lambda count: count%1000==0,
               how='stdout',
@@ -80,7 +80,7 @@ def mul_class():
 
     # 訓練
     net.train(X, T, 
-              eta=0.2,
+              eta0=0.2,
               max_epoch=1000000,
               log_cond=lambda count: count%1000==0,
               how='stdout',
