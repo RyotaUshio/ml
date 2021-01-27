@@ -324,7 +324,7 @@ class mlp:
         # 多クラス分類問題
         if self[-1].size > 1:
             predicted = np.argmax(self(X), axis=1)
-            true      = np.argmax(T, axis=1)
+            true      = np.argmax(T, axis=1)# np.dot(T, np.arange(self[-1].size))# np.argmax(T, axis=1)
         # 2クラス分類問題
         else:
             predicted = np.where(self(X) > 0.5, 1, 0)
@@ -333,7 +333,7 @@ class mlp:
         n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
         n_sample = len(X)                                  # 全サンプル数
         accuracy = n_correct / n_sample * 100              # 正解率[%]
-        print(f"Accuracy = {accuracy:.2f} %")
+        print(f"Accuracy = {accuracy:.4f} %")
         if log:
             if self.log is not None:
                 self.log.accuracy = accuracy
@@ -472,7 +472,7 @@ class act_func:
 
     def __call__(self, u):
         """活性化関数の値h(u)そのもの."""
-        raise NotImplementedError
+        raise N>otImplementedError
 
     def val2deriv(self, z):
         """活性化関数の関数値z = h(u)の関数として導関数h\'(u)の値を計算する."""
@@ -658,6 +658,7 @@ class logger:
     best_params: dict          = dataclasses.field(init=False, default=None, repr=False)
     best_params_val: dict      = dataclasses.field(init=False, default=None, repr=False)
     stop_params: dict          = dataclasses.field(init=False, default=None, repr=False)
+    should_stop_iter : int     = dataclasses.field(init=False, default=None)
     AIC : float                = dataclasses.field(init=False, default=None)
     BIC : float                = dataclasses.field(init=False, default=None)
     accuracy: float            = dataclasses.field(default=None)
@@ -670,11 +671,11 @@ class logger:
             self.T_val = check_twodim(self.T_val)
             self._compute_val_loss = True
         # 1エポックあたりiteration数
-        self.iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
+        self._iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
         # 記録をとる頻度はどんなに粗くても1エポック
         if self.delta_iter is None:
-            self.delta_iter = self.iter_per_epoch
-        self.delta_iter = min(self.delta_iter, self.iter_per_epoch)
+            self.delta_iter = self._iter_per_epoch
+        self.delta_iter = min(self.delta_iter, self._iter_per_epoch)
         # 損失の変化をどう表示するか
         if self.how == 'both':
             self.plot, self.stdout = True, True
@@ -706,8 +707,8 @@ class logger:
         ax.set(xlabel="iterations", ylabel="loss")
         secax = ax.secondary_xaxis(
             'top',
-            functions=(lambda count: count/self.iter_per_epoch,
-                       lambda epoch: epoch*self.iter_per_epoch)
+            functions=(lambda count: count/self._iter_per_epoch,
+                       lambda epoch: epoch*self._iter_per_epoch)
         )
         
         secax.xaxis.set_major_locator(ticker.AutoLocator())
@@ -727,9 +728,9 @@ class logger:
             self.loss.append(self.net.loss(None, T_mini))
             self.count.append(self.iterations)
             # 現在のエポック
-            epoch = self.iterations // self.iter_per_epoch
+            epoch = self.iterations // self._iter_per_epoch
             # epoch内で何番目のiterationか
-            idx_iter = self.iterations % self.iter_per_epoch
+            idx_iter = self.iterations % self._iter_per_epoch
             # epoch内で何番目のパターンか
             idx_sample = min(
                 (idx_iter + 1) * self.batch_size,
@@ -746,7 +747,7 @@ class logger:
                 print(logstr)
 
             if self.plot:
-                self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.delta_epoch))*self.delta_epoch) * self.iter_per_epoch)
+                self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.delta_epoch))*self.delta_epoch) * self._iter_per_epoch)
                 
                 if self._compute_val_loss:
                     self.ax.plot(self.count[-2:], self.val_loss[-2:], c=self.color2)
@@ -788,12 +789,15 @@ class logger:
                 self.best_loss = last_loss
                 self.best_params = self.net.get_params()
 
-            _no_improvement_epoch = self._no_improvement_iter / self.iter_per_epoch
+            _no_improvement_epoch = self._no_improvement_iter / self._iter_per_epoch
             if _no_improvement_epoch > self.patience_epoch:
+                self.should_stop_iter = self.iterations
                 which = 'Validation' if self._compute_val_loss else 'Training'
                 no_improvement_msg = (
                     f"{which} loss did not improve more than "
-                    f"tol={self.tol} for the last {self.patience_epoch} epochs."
+                    f"tol={self.tol} for the last {self.patience_epoch} epochs"
+                    f" ({self.should_stop_iter} iterations &"
+                    f" {self.should_stop_iter / self._iter_per_epoch:.1f} epochs so far)."
                 )
                 if self.early_stopping:
                     self.stop_params_val = self.net.get_params()
@@ -805,7 +809,7 @@ class logger:
 
     def avrg_last_epoch(self, loss_list):
         """直近1エポックでの損失の平均."""
-        last_epoch = loss_list[-int(self.iter_per_epoch / self.delta_iter + 0.5):]
+        last_epoch = loss_list[-int(self._iter_per_epoch / self.delta_iter + 0.5):]
         avrg_loss = np.mean(last_epoch)
         return avrg_loss
         
