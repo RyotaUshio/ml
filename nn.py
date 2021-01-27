@@ -79,7 +79,8 @@ class layer:
         return self.z
         
     def set_z(self) -> np.ndarray:
-        """入力層が現在保持している信号zを使って、ネットワークの入力層から自分自身まで信号を順伝播させる.
+        """入力層が現在保持している信号zを使って、ネットワークの入力層から
+        自分自身まで信号を順伝播させる.
         """
         if self.is_first():
             return self.z
@@ -87,7 +88,8 @@ class layer:
             return self.fire(self.prev.set_z())
 
     def set_delta(self) -> np.ndarray:
-        """出力層が現在保持している誤差deltaを使って、ネットワークの出力層から自分自身まで誤差を逆伝播させる.
+        """出力層が現在保持している誤差deltaを使って、ネットワークの出力層から
+        自分自身まで誤差を逆伝播させる.
         """
         if self.is_last():
             return self.delta
@@ -300,36 +302,37 @@ class mlp:
         try:            
             for epoch in range(max_epoch):
                 for X_mini, T_mini in minibatch_iter(X_train, T_train, batch_size):
-                    self.forward_prop(X_mini)      # 順伝播
-                    self.back_prop(T_mini)         # 逆伝播
-                    self.set_gradient()            # パラメータに関する損失の勾配を求める
-                    optimizer.update()             # 勾配法による重み更新
-                    self.log()                          # ログ出力
-    
+                    self.forward_prop(X_mini)    # 順伝播
+                    self.back_prop(T_mini)       # 逆伝播
+                    self.set_gradient()          # パラメータに関する損失の勾配を求める
+                    optimizer.update()           # 勾配法による重み更新
+                    self.log()                   # ログ出力
+                    
         except KeyboardInterrupt:
             warnings.warn('Training stopped by user.')
+            
         except NoImprovement as e:
             print(e)
-
-        self.log.end()
+            
+        finally:
+            self.log.end()
     
     def test(self, X:np.ndarray, T:np.ndarray, log:bool=True) -> None:
-        """テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を返す.
+        """テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を計算する.
         selfは分類器と仮定する. 
         """
         # 多クラス分類問題
         if self[-1].size > 1:
             predicted = np.argmax(self(X), axis=1)
             true      = np.argmax(T, axis=1)
-            n_correct = np.count_nonzero(predicted == true)
         # 2クラス分類問題
         else:
             predicted = np.where(self(X) > 0.5, 1, 0)
             true      = T
-            n_correct = np.count_nonzero(predicted == true)
-
-        n_sample = len(X)
-        accuracy = n_correct / n_sample * 100
+        
+        n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
+        n_sample = len(X)                                  # 全サンプル数
+        accuracy = n_correct / n_sample * 100              # 正解率[%]
         print(f"Accuracy = {accuracy:.2f} %")
         if log:
             if self.log is not None:
@@ -623,7 +626,7 @@ LOSSES = {
 
 
 class NoImprovement(Exception):
-    """Raised when no improve was made in training any more."""
+    """Raised when no progress is being made any more in training."""
     pass
 
 
