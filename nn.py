@@ -1,4 +1,4 @@
-"""Multi Layer Perceptron."""
+"""Multilayer Perceptron."""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,7 +30,7 @@ class layer:
                 raise ValueError("Incompatible size was specified.")
             self.size = self.W.shape[1]
             # set the activation function
-            self.h = h
+            self.h = act_func.make(h)
 
         # for an input layer
         else:
@@ -39,6 +39,11 @@ class layer:
                     "The size of an input layer must be specified because it cannot be inferred from W.shape or b.shape"
                 )
             self.size = size
+            if not (W == b == h == None):
+                warnings.warn(
+                    "Your specification of the input layer parameters will be ignored"
+                    " because they must be set None."
+                )
             self.W = self.b = self.h = None
         
         self.u = self.delta = self.dJdW = self.dJdb = None
@@ -122,7 +127,7 @@ class pool_layer(layer):
 @dataclasses.dataclass
 class mlp:
     """
-    多層パーセプトロン(MLP: Multi Layer Perceptron). 
+    多層パーセプトロン(MLP: Multilayer Perceptron). 
     """
     layers: Sequence[layer]                             # 各層を表すlayerオブジェクトを並べた配列
     loss: 'loss_func' = dataclasses.field(default=None) # 損失関数
@@ -145,11 +150,11 @@ class mlp:
         sigmas = list(sigmas)
         
         layers = [layer(size=shape[0], first=True)]
-        
+
         for l in range(1, n_layer):
             if sigmas[l]:
                 sigma = sigmas[l]
-            elif isinstance(ACTIVATIONS[act_funcs[l]], ReLU):
+            elif isinstance(act_func.make(act_funcs[l]), (ReLU, LeakyReLU)):
                 sigma = np.sqrt(2.0 / shape[l-1]) # Heの初期値
             else:
                 sigma = np.sqrt(1.0 / shape[l-1]) # Xavierの初期値
@@ -161,7 +166,7 @@ class mlp:
                 layer(
                     W=np.random.normal(scale=sigma, size=W_shape),
                     b=np.zeros(shape=b_shape),
-                    h=ACTIVATIONS[act_funcs[l]]()
+                    h=act_funcs[l]
                 )
             )
 
@@ -175,19 +180,24 @@ class mlp:
             raise ValueError("'weights', 'biases', and 'act_funcs' must have the same length.")
 
         if include_first:
-            if not (weights[0] == biases[0] == act_funcs[0] == None):
-                warnings.warn("Your specification of the input layer parameters will be ignored because they must be set None.")
+            first_layer = layer(
+                size=np.asarray(weights[1]).shape[0],
+                W=weights[0], b=biases[0], h=act_funcs[0],
+                first=True
+            )
             weights = weights[1:]
             biases = biases[1:]
             act_funcs = act_funcs[1:]
+        else:
+            first_layer = layer(size=np.asarray(weights[0]).shape[0], first=True)
 
         layers = (
-            [layer(size=np.asarray(weights[0]).shape[0], first=True)]
+            [first_layer]
             +
             [layer(
                 W=weight,
                 b=bias,
-                h=ACTIVATIONS[act_func]()
+                h=act_func
             ) for weight, bias, act_func in zip(weights, biases, act_funcs)]
             )
 
@@ -196,9 +206,12 @@ class mlp:
     def __post_init__(self):
         ## ネットワークの損失関数を設定 ##
         if self.loss is None:
-            self.loss = self[-1].h.loss()                              # 特に指定されなければ、出力層の活性化関数に対応する損失関数を選ぶ(最尤推定)
-        self.loss.net = self                                           # 損失関数オブジェクトにselfをひもづける
-        self[-1].h.is_canonical = (type(self.loss) == self[-1].h.loss) # 正準連結関数か否か
+            # 特に指定されなければ、出力層の活性化関数に対応する損失関数を選ぶ(最尤推定)
+            self.loss = self[-1].h.loss()
+        # 損失関数オブジェクトにselfをひもづける
+        self.loss.net = self
+        # 正準連結関数か否か
+        self[-1].h.is_canonical = (type(self.loss) == self[-1].h.loss)
         if not self[-1].h.is_canonical:
             warnings.warn(
                 "You are using a non-canonical link function as the activation function of output layer."
@@ -222,7 +235,7 @@ class mlp:
         return dict(
             weights = [layer.W.copy() for layer in self[1:]],
             biases = [layer.b.copy() for layer in self[1:]],
-            act_funcs = [layer.h.__class__.__name__ for layer in self[1:]],
+            act_funcs = [layer.h.copy() for layer in self[1:]],
             loss = self.loss.__class__.__name__
         )
 
@@ -466,9 +479,11 @@ OPTIMIZERS = {
 @dataclasses.dataclass
 class act_func:
     """各層の活性化関数"""
-    param : float = 1.0
-    loss : Type["loss_func"] = dataclasses.field(default=None) # 出力層の活性化関数として用いた場合の対応する損失関数クラス
-    is_canonical : bool = dataclasses.field(default=None)
+    param : float            = dataclasses.field(default=1.0)
+    # 出力層の活性化関数として用いた場合の対応する損失関数クラス
+    loss : Type["loss_func"] = dataclasses.field(init=False, default=None, repr=False)
+    # 正準連結関数かどうか
+    is_canonical : bool      = dataclasses.field(default=None)
 
     def __call__(self, u):
         """活性化関数の値h(u)そのもの."""
@@ -478,11 +493,27 @@ class act_func:
         """活性化関数の関数値z = h(u)の関数として導関数h\'(u)の値を計算する."""
         raise NotImplementedError
 
+    def copy(self):
+        return self.__class__(param=self.param, is_canonical=self.is_canonical)
 
+    @staticmethod
+    def make(arg):
+        if isinstance(arg, str):
+            return ACTIVATIONS[arg]()
+        elif isinstance(arg, act_func):
+            return arg
+        else:
+            raise TypeError(
+                "'arg' must be either str(name of act_func) or act_func object,"
+                " not {type(arg)}"
+            )
+
+
+
+@dataclasses.dataclass
 class linear(act_func):
     """線形関数"""
-    def __init__(self):
-        super().__init__()
+    def __post_init__(self):
         self.loss = mean_square
 
     def __call__(self, u):
@@ -492,11 +523,12 @@ class linear(act_func):
         return self.param
 
 
+@dataclasses.dataclass
 class step(act_func):
     """ヘヴィサイドのステップ関数"""
-    def __init__(self):
-        super().__init__()
-        self.loss = cross_entropy # sigmoid(a*u)でa -> +inf とした極限だと思えば、交差エントロピーでいいのでは??
+    def __post_init__(self):
+        # sigmoid(a*u)でa -> +inf とした極限だと思えば、交差エントロピーでいいのでは??
+        self.loss = cross_entropy
         
     def __call__(self, u):
         return np.maximum(np.sign(u), 0.0)
@@ -504,20 +536,24 @@ class step(act_func):
     def val2deriv(self, z):
         return 0.0
 
-    
+
+@dataclasses.dataclass
 class sigmoid(act_func):
+    # val2deriv計算時の桁落ち防止に使うつもりだったが、必要ないかも
+    eps: float = dataclasses.field(default=1e-4)
+    
     """シグモイド関数"""
-    def __init__(self):
-        super().__init__()
+    def __post_init__(self):
         self.loss = cross_entropy
         
     def __call__(self, u):
         return 0.5 * (1.0 + np.tanh(0.5 * self.param * u))
     
-    def val2deriv(self, z, th=0.001):
-        return self.param * z * (1.0 - z) # np.maximum(z, th) * (1.0 - np.minimum(z, 1-th))
+    def val2deriv(self, z):
+        return self.param * z * (1.0 - z) # np.maximum(z, self.eps) * (1.0 - np.minimum(z, 1-self.eps))
 
-    
+
+@dataclasses.dataclass
 class ReLU(act_func):
     """ReLU"""
     def __call__(self, u):
@@ -526,11 +562,23 @@ class ReLU(act_func):
     def val2deriv(self, z):
         return np.where(z > 0.0, self.param, 0.0)
 
+
+@dataclasses.dataclass
+class LeakyReLU(act_func):
+    """Leaky ReLU"""
+    alpha:float = dataclasses.field(default=0.01)
+        
+    def __call__(self, u):
+        return np.maximum(self.param * u, self.alpha * u)
     
+    def val2deriv(self, z):
+        return np.where(z > 0, self.param, self.alpha)
+
+
+@dataclasses.dataclass
 class softmax(act_func):
     """ソフトマックス関数"""
-    def __init__(self):
-        super().__init__()
+    def __post_init__(self):
         self.loss = mul_cross_entropy
         
     def __call__(self, u):
@@ -551,6 +599,8 @@ ACTIVATIONS = {
     'logistic'   : sigmoid,
     'relu'       : ReLU,
     'ReLU'       : ReLU,
+    'LeakyReLU'  : LeakyReLU,
+    'leakyrelu'  : LeakyReLU,
     'softmax'    : softmax
 }
 
@@ -952,4 +1002,3 @@ def check_twodim(a:np.ndarray=None):
     elif a.ndim >= 3:
         raise ValueError("A three dimensional array was passed.")
     return a
-
