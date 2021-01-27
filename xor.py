@@ -17,7 +17,7 @@ if first:
 
     # 各層の活性化関数
     act_funcs = [
-        None
+        None,
         'sigmoid',
         'sigmoid'
     ]
