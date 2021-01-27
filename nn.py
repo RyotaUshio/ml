@@ -280,6 +280,7 @@ class mlp:
             optimizer='AdaGrad',
             max_epoch:int=100,
             batch_size=1,
+            lamb=0, 
             *args, **kwargs
     ) -> None:
         """
@@ -310,7 +311,7 @@ class mlp:
             *args, **kwargs
         )
         # パラメータ更新器
-        optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta0)
+        optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta0, lamb=lamb)
         
         try:            
             for epoch in range(max_epoch):
@@ -399,10 +400,15 @@ class _optimizer_base:
     eta : float
         The current value of learning rate.
     """
-    def __init__(self, net, eta0):
+    def __init__(self, net, eta0, lamb):
         self.net = net
         self.eta0 = eta0
         self.eta = self.eta0
+        self.lamb = lamb
+        if self.lamb:
+            self.regularization = True
+        else:
+            self.regularization = False
         # パラメータの1ステップあたり更新量
         self.dWs = [None] + [0 for _ in range(1, len(self.net))] # 重み行列用
         self.dbs = [None] + [0 for _ in range(1, len(self.net))] # バイアス用
@@ -412,7 +418,14 @@ class _optimizer_base:
         """
         raise NotImplementedError
 
+    def add_regularization_term(self):
+        for layer in self.net[1:]:
+            layer.dJdW += self.lamb * layer.W
+            layer.dJdb += self.lamb * layer.b
+            
     def update(self):
+        if self.regularization:
+            self.add_regularization_term()
         self.get_update()
         for layer, dW, db in zip(self.net[1:], self.dWs[1:], self.dbs[1:]):
             layer.W += dW
@@ -427,8 +440,8 @@ class SGD(_optimizer_base):
 
             
 class AdaGrad(_optimizer_base):
-    def __init__(self, net, eta0, eps=1e-7):
-        super().__init__(net, eta0)
+    def __init__(self, net, eta0, lamb, eps=1e-7):
+        super().__init__(net, eta0, lamb)
         # dJ/dWやdJ/dbの二乗和を保持する変数
         self.h_W = [None] + [0 for _ in range(1, len(self.net))] # 重み行列用
         self.h_b = [None] + [0 for _ in range(1, len(self.net))] # バイアス用
@@ -451,8 +464,8 @@ class AdaGrad(_optimizer_base):
 
 
 class Momentum(_optimizer_base):
-    def __init__(self, net, eta0, momentum=0.9):
-        super().__init__(net, eta0)
+    def __init__(self, net, eta0, lamb, momentum=0.9):
+        super().__init__(net, eta0, lamb)
         self.momentum = momentum
         
     def get_update(self):
