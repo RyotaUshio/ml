@@ -45,7 +45,7 @@ class layer:
         self.prev = self.next = None
 
     def __repr__(self):
-        return f"<layer size {self.size} with activation {self.h}>"
+        return f"<{self.__class__.__name__} size {self.size} with activation {self.h}>"
     
     def is_first(self) -> bool:
         return (self.prev is None) and (self.next is not None)
@@ -277,7 +277,9 @@ class mlp:
                     self.log()                          # ログ出力
     
         except KeyboardInterrupt:
-            pass
+            warnings.warn('Training stopped by user.')
+        except NoImprovement as e:
+            print(e)
 
         self.log.end()
     
@@ -585,7 +587,9 @@ LOSSES = {
 }
 
 
-    
+class NoImprovement(Exception):
+    pass
+
 @dataclasses.dataclass
 class logger:
     """学習経過の記録"""
@@ -595,7 +599,7 @@ class logger:
     iterations : int           = dataclasses.field(default=0)
     accuracy: float            = dataclasses.field(default=None)
     time: float                = dataclasses.field(default=None)
-    cond: Callable             = dataclasses.field(default=lambda count: count%1000==0, repr=False)
+    delta_iter: int            = dataclasses.field(default=None)
     n_sample : int             = dataclasses.field(default=None)
     batch_size: int            = dataclasses.field(default=None)
     how: str                   = dataclasses.field(default='plot', repr=False)
@@ -603,22 +607,30 @@ class logger:
     base : int                 = dataclasses.field(default=20, repr=False)
     X_train : np.ndarray       = dataclasses.field(default=None, repr=False)
     T_train : np.ndarray       = dataclasses.field(default=None, repr=False)
-    X_test : np.ndarray        = dataclasses.field(default=None, repr=False)
-    T_test : np.ndarray        = dataclasses.field(default=None, repr=False)
-    compute_test_loss : bool   = dataclasses.field(default=False, repr=False)
-    test_loss: Sequence[float] = dataclasses.field(default_factory=list)
+    X_val : np.ndarray         = dataclasses.field(default=None, repr=False)
+    T_val : np.ndarray         = dataclasses.field(default=None, repr=False)
+    compute_val_loss : bool    = dataclasses.field(default=False, repr=False)
+    val_loss: Sequence[float]  = dataclasses.field(default_factory=list)
     color2 : str               = dataclasses.field(default='tab:orange', repr=False)
+    early_stopping: bool       = dataclasses.field(default=False)
+    epochs_no_change: int      = dataclasses.field(default=8)
+    _no_improvement_iter: int  = dataclasses.field(init=False, default=0, repr=False)
+    tol: float                 = dataclasses.field(default=1e-4)
     AIC : float                = dataclasses.field(init=False, default=None)
     BIC : float                = dataclasses.field(init=False, default=None)
 
     def __post_init__(self):
-        # 学習開始時間を記録
-        self.t0 = time.time()
-        # 汎化誤差(テストデータに対する誤差)も計算するかどうか
-        if self.X_test is not None and self.T_test is not None:
-            self.compute_test_loss = True
+        # 検証用データ(X_val, T_val)に対する誤差も計算するかどうか
+        if not((self.X_val is None) and (self.T_val is None)):
+            self.X_val = check_twodim(self.X_val)
+            self.T_val = check_twodim(self.T_val)
+            self.compute_val_loss = True
         # 1エポックあたりiteration数
         self.iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
+        # 記録をとる頻度はどんなに粗くても1エポック
+        if self.delta_iter is None:
+            self.delta_iter = self.iter_per_epoch
+        self.delta_iter = min(self.delta_iter, self.iter_per_epoch)
         # 損失の変化をどう表示するか
         if self.how == 'both':
             self.plot, self.stdout = True, True
@@ -631,8 +643,8 @@ class logger:
         else:
             raise ValueError("logger.how must be either of the followings: 'both', 'plot', 'stdout' or 'off'")
 
+        # 損失のグラフをリアルタイムで
         if self.plot:
-            # 損失のグラフをリアルタイムで
             self.fig, self.ax = plt.subplots(constrained_layout=True)
             self.ax.set(xlabel="iterations", ylabel="loss")
             self.secax = self.ax.secondary_xaxis(
@@ -643,15 +655,24 @@ class logger:
             
             self.secax.xaxis.set_major_locator(ticker.AutoLocator())
             self.secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
-            self.secax.set_xlabel('epoch')
+            self.secax.set_xlabel('epochs')
 
-            # self.secax.tick_params(axis='x', which='major', length=10)
-            self.secax.set_xlim(left=0)
+            self.ax.set_xlim(left=0)
+            self.ax.set_ylim(bottom=0, top=None)
             self.ax.grid(axis='y', linestyle='--')
             plt.ion()
 
+        # 損失がself.tol以上改善しなければ学習を打ち切る
+        self.best_loss = np.inf
+        if self.compute_val_loss:
+            self.best_val_loss = np.inf
+
+        # 学習開始時間を記録
+        self.t0 = time.time()
+
+
     def __call__(self) -> None:
-        if self.cond(self.iterations):
+        if self.iterations % self.delta_iter == 0:
             # log出力
             T_mini = self.net[-1].z - self.net[-1].delta
             self.loss.append(self.net.loss(None, T_mini))
@@ -665,12 +686,12 @@ class logger:
                 (idx_iter + 1) * self.batch_size,
                 self.n_sample
             )
-            if self.compute_test_loss:
-                self.test_loss.append(self.net.loss(self.X_test, self.T_test))
+            if self.compute_val_loss:
+                self.val_loss.append(self.net.loss(self.X_val, self.T_val))
             
             logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss = {self.loss[-1]:.3e}"
-            if self.compute_test_loss:
-                logstr += f" (train), {self.test_loss[-1]:.3e} (test)"
+            if self.compute_val_loss:
+                logstr += f" (train), {self.val_loss[-1]:.3e} (test)"
             
             if self.stdout:
                 print(logstr)
@@ -678,8 +699,12 @@ class logger:
             if self.plot:
                 self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.base))*self.base) * self.iter_per_epoch)
                 
-                if self.compute_test_loss:
-                    self.ax.plot(self.count[-2:], self.test_loss[-2:], c=self.color2)
+                if self.compute_val_loss:
+                    self.ax.plot(self.count[-2:], self.val_loss[-2:], c=self.color2)
+                    if len(self.count) >= 2:
+                        marker = '^' if self.val_loss[-2] < self.val_loss[-1] else 'v'
+                        self.ax.scatter(self.count[-1:], self.val_loss[-1:],
+                                        marker=marker, fc=self.color2, ec='k')
 
                 self.ax.plot(self.count[-2:], self.loss[-2:], c=self.color)
                 self.ax.set_title(logstr, fontsize=10)
@@ -687,8 +712,47 @@ class logger:
                 plt.show()
                 plt.pause(0.1)
 
+            # 早期終了など
+            last_loss = self.avrg_last_epoch(self.loss)
+            
+            if self.compute_val_loss:
+                last_val_loss = self.avrg_last_epoch(self.val_loss)
+                # 一定以上の改善が見られない場合
+                if last_val_loss > (self.best_val_loss - self.tol):
+                    self._no_improvement_iter += self.delta_iter
+                else:
+                    self._no_improvement_iter = 0
+                # 現時点までの暫定最適値を更新(検証用データ) 
+                if last_val_loss < self.best_val_loss:
+                    self.best_val_loss = self.val_loss[-1]
+                    
+            else:
+                # 一定以上の改善が見られない場合
+                if last_loss > (self.best_loss - self.tol):
+                    self._no_improvement_iter += self.delta_iter
+                else:
+                    self._no_improvement_iter = 0
+            
+            # 現時点までの暫定最適値を更新(訓練データ)
+            if last_loss < self.best_loss:
+                self.best_loss = last_loss
+
+            _no_improvement_epoch = self._no_improvement_iter / self.iter_per_epoch
+            if _no_improvement_epoch > self.epochs_no_change:
+                which = 'Validation' if self.early_stopping else 'Training'
+                raise NoImprovement(
+                    f"{which} loss did not improve more than "
+                    f"tol={self.tol} for {self.epochs_no_change} consecutive epochs."
+                )
+
         self.iterations += 1
 
+    def avrg_last_epoch(self, loss_list):
+        """直近1エポックでの損失の平均."""
+        last_epoch = loss_list[-int(self.iter_per_epoch / self.delta_iter + 0.5):]
+        avrg_loss = np.mean(last_epoch)
+        return avrg_loss
+        
     def end(self) -> None:
         # record time elapsed
         self.tf = time.time()
