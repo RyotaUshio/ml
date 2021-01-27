@@ -317,20 +317,20 @@ class mlp:
         """テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を返す.
         selfは分類器と仮定する. 
         """
-        correct = 0
-        n_sample = len(X)
+        # 多クラス分類問題
         if self[-1].size > 1:
-            for i in range(n_sample):
-                if np.argmax(T[i]) == np.argmax(self(X[[i]])):
-                    correct += 1
+            predicted = np.argmax(self(X), axis=1)
+            true      = np.argmax(T, axis=1)
+            n_correct = np.count_nonzero(predicted == true)
+        # 2クラス分類問題
         else:
-            for i in range(n_sample):
-                ans = 1 if self(X[[i]]) > 0.5 else 0
-                if T[i] == ans:
-                    correct += 1
+            predicted = np.where(self(X) > 0.5, 1, 0)
+            true      = T
+            n_correct = np.count_nonzero(predicted == true)
 
-        accuracy = correct / n_sample * 100
-        print(f"{accuracy:.2f} % correct")
+        n_sample = len(X)
+        accuracy = n_correct / n_sample * 100
+        print(f"Accuracy = {accuracy:.2f} %")
         if log:
             if self.log is not None:
                 self.log.accuracy = accuracy
