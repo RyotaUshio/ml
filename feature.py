@@ -67,7 +67,7 @@ def auto_encoder(X, n_hidden_units, *args, **kwargs):
 
 # net, log = ft.auto_encoder(
 #     mnist.X_train, 32, eta=0.1,
-#     optimizer='AdaGrad', how_to_show='plot',
+#     optimizer='AdaGrad', how='plot',
 #     batch_size=200, log_cond=lambda i: i%1000==0
 # )
 # mnist.imshow(net[1].W[:, 2].reshape(28,28)[3:-3, 3:-3])

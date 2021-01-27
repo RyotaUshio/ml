@@ -1,12 +1,13 @@
 import nn
 import mnist
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 mnist.load()
 
 # 中間層のニューロン数をいろいろ変えてAIC, BICを計算してみる。
-n_hidden_unit = [5, 10, 20, 50, 100, 200, 500, 1000, 2000]
+n_hidden_unit = [5, 10, 20, 50, 100, 200, 500, 1000]
 aic = []
 bic = []
 nets = []
@@ -17,4 +18,3 @@ for n in n_hidden_unit:
     aic.append(net.log.AIC)
     bic.append(net.log.BIC)
 
-    
