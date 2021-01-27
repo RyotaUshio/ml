@@ -45,7 +45,7 @@ class layer:
         self.prev = self.next = None
 
     def __repr__(self):
-        return f"<{self.__class__.__name__} size {self.size} with activation {self.h}>"
+        return f"<{self.__class__.__name__} of {self.size} neurons with {self.h.__class__.__name__} activation>"
     
     def is_first(self) -> bool:
         return (self.prev is None) and (self.next is not None)
@@ -233,7 +233,7 @@ class mlp:
             T_train:np.ndarray,
             eta0:float=0.005,
             optimizer='AdaGrad',
-            max_epoch:int=10000,
+            max_epoch:int=100,
             batch_size=1,
             *args, **kwargs
     ) -> None:
@@ -560,6 +560,7 @@ class mean_square(loss_func):
         batch_size = len(t)
         SSE = 0.5 * np.linalg.norm(self.net[-1].z - t)**2
         return SSE / batch_size
+
     
 class cross_entropy(loss_func):
     def __call__(self, x, t):
@@ -587,37 +588,41 @@ LOSSES = {
 }
 
 
+
 class NoImprovement(Exception):
+    """Raised when no improve was made in training any more."""
     pass
+
+
 
 @dataclasses.dataclass
 class logger:
     """学習経過の記録"""
     net : mlp                  = dataclasses.field(default=None, repr=False)
+    iterations : int           = dataclasses.field(default=0)
     loss: Sequence[float]      = dataclasses.field(default_factory=list)
     count: Sequence[int]       = dataclasses.field(default_factory=list)
-    iterations : int           = dataclasses.field(default=0)
-    accuracy: float            = dataclasses.field(default=None)
-    time: float                = dataclasses.field(default=None)
     delta_iter: int            = dataclasses.field(default=None)
     n_sample : int             = dataclasses.field(default=None)
     batch_size: int            = dataclasses.field(default=None)
-    how: str                   = dataclasses.field(default='plot', repr=False)
-    color : str                = dataclasses.field(default='tab:blue', repr=False)
-    base : int                 = dataclasses.field(default=20, repr=False)
     X_train : np.ndarray       = dataclasses.field(default=None, repr=False)
     T_train : np.ndarray       = dataclasses.field(default=None, repr=False)
     X_val : np.ndarray         = dataclasses.field(default=None, repr=False)
     T_val : np.ndarray         = dataclasses.field(default=None, repr=False)
     compute_val_loss : bool    = dataclasses.field(default=False, repr=False)
     val_loss: Sequence[float]  = dataclasses.field(default_factory=list)
+    color : str                = dataclasses.field(default='tab:blue', repr=False)
     color2 : str               = dataclasses.field(default='tab:orange', repr=False)
+    how: str                   = dataclasses.field(default='plot', repr=False)
+    base : int                 = dataclasses.field(default=20, repr=False)
     early_stopping: bool       = dataclasses.field(default=False)
     epochs_no_change: int      = dataclasses.field(default=8)
     _no_improvement_iter: int  = dataclasses.field(init=False, default=0, repr=False)
     tol: float                 = dataclasses.field(default=1e-4)
     AIC : float                = dataclasses.field(init=False, default=None)
     BIC : float                = dataclasses.field(init=False, default=None)
+    accuracy: float            = dataclasses.field(default=None)
+    time: float                = dataclasses.field(default=None)
 
     def __post_init__(self):
         # 検証用データ(X_val, T_val)に対する誤差も計算するかどうか
@@ -645,21 +650,7 @@ class logger:
 
         # 損失のグラフをリアルタイムで
         if self.plot:
-            self.fig, self.ax = plt.subplots(constrained_layout=True)
-            self.ax.set(xlabel="iterations", ylabel="loss")
-            self.secax = self.ax.secondary_xaxis(
-                'top',
-                functions=(lambda count: count/self.iter_per_epoch,
-                           lambda epoch: epoch*self.iter_per_epoch)
-            )
-            
-            self.secax.xaxis.set_major_locator(ticker.AutoLocator())
-            self.secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
-            self.secax.set_xlabel('epochs')
-
-            self.ax.set_xlim(left=0)
-            self.ax.set_ylim(bottom=0, top=None)
-            self.ax.grid(axis='y', linestyle='--')
+            self.fig, self.ax, self.secax = self.init_plot()
             plt.ion()
 
         # 損失がself.tol以上改善しなければ学習を打ち切る
@@ -670,6 +661,25 @@ class logger:
         # 学習開始時間を記録
         self.t0 = time.time()
 
+    def init_plot(self):
+        fig, ax = plt.subplots(constrained_layout=True)
+        
+        ax.set(xlabel="iterations", ylabel="loss")
+        secax = ax.secondary_xaxis(
+            'top',
+            functions=(lambda count: count/self.iter_per_epoch,
+                       lambda epoch: epoch*self.iter_per_epoch)
+        )
+        
+        secax.xaxis.set_major_locator(ticker.AutoLocator())
+        secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
+        secax.set_xlabel('epochs')
+        
+        ax.set_xlim(left=0)
+        ax.set_ylim(bottom=0, top=None)
+        ax.grid(axis='y', linestyle='--')
+
+        return fig, ax, secax
 
     def __call__(self) -> None:
         if self.iterations % self.delta_iter == 0:
@@ -770,13 +780,14 @@ class logger:
             self.BIC = 2 * nll + n_param * np.log(self.n_sample)
             
     
-    def show(self, semilog=False, *args, **kwargs):
-        if self.ax is None:
-            self.ax = plt.gca()
-        self.ax.plot(self.count, self.loss)
-        self.ax.set(xlabel="iterations", ylabel="loss", *args, **kwargs)
-        if semilog:
-            self.ax.set_yscale("log")
+    def show(self, color='tab:blue', color2='tab:orange', *args, **kwargs):
+        """学習終了後にプロット(なぜかlinesが表示されない。原因不明)
+        """
+        fig, ax, secax = self.init_plot()
+        ax.plot(self.count, self.loss, color=color, *args, **kwargs)
+        if self.val_loss:
+            ax.plot(self.count, self.val_loss, color=color2, *args, **kwargs)
+        return fig, ax, secax
 
     def to_file(self, fname) -> None:
         with open(fname, "w") as f:
