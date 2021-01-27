@@ -472,7 +472,7 @@ class act_func:
 
     def __call__(self, u):
         """活性化関数の値h(u)そのもの."""
-        raise N>otImplementedError
+        raise NotImplementedError
 
     def val2deriv(self, z):
         """活性化関数の関数値z = h(u)の関数として導関数h\'(u)の値を計算する."""
@@ -486,10 +486,10 @@ class linear(act_func):
         self.loss = mean_square
 
     def __call__(self, u):
-        return u
+        return self.param * u
     
     def val2deriv(self, z):
-        return 1.0
+        return self.param
 
 
 class step(act_func):
@@ -503,7 +503,6 @@ class step(act_func):
     
     def val2deriv(self, z):
         return 0.0
-    
 
     
 class sigmoid(act_func):
@@ -516,16 +515,16 @@ class sigmoid(act_func):
         return 0.5 * (1.0 + np.tanh(0.5 * self.param * u))
     
     def val2deriv(self, z, th=0.001):
-        return z * (1.0 - z) # np.maximum(z, th) * (1.0 - np.minimum(z, 1-th))
+        return self.param * z * (1.0 - z) # np.maximum(z, th) * (1.0 - np.minimum(z, 1-th))
 
     
 class ReLU(act_func):
     """ReLU"""
     def __call__(self, u):
-        return np.maximum(u, 0.0)
+        return np.maximum(self.param * u, 0.0)
     
     def val2deriv(self, z):
-        return np.where(z > 0.0, 1.0, 0.0)
+        return np.where(z > 0.0, self.param, 0.0)
 
     
 class softmax(act_func):
