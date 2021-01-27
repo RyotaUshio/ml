@@ -83,24 +83,29 @@ class layer:
         self.z = self.h( self.u )
         return self.z
         
-    def set_z(self) -> np.ndarray:
+    def prop_z(self) -> np.ndarray:
         """入力層が現在保持している信号zを使って、ネットワークの入力層から
         自分自身まで信号を順伝播させる.
         """
         if self.is_first():
             return self.z
         else:
-            return self.fire(self.prev.set_z())
+            return self.fire(self.prev.prop_z())
 
-    def set_delta(self) -> np.ndarray:
+    def calc_delta(self, next_delta) -> np.ndarray:
+        """次の層における誤差から今の層の誤差を求める.
+        """
+        self.delta = self.h.val2deriv(self.z) * (next_delta @ self.next.W.T)
+        return self.delta
+
+    def prop_delta(self) -> np.ndarray:
         """出力層が現在保持している誤差deltaを使って、ネットワークの出力層から
         自分自身まで誤差を逆伝播させる.
         """
         if self.is_last():
             return self.delta
         else:
-            self.delta = self.h.val2deriv(self.z) * (self.next.set_delta() @ self.next.W.T)
-            return self.delta
+            return self.calc_delta(self.next.prop_delta())
 
     def set_gradient(self) -> None:
         """順伝播と逆伝播により出力zと誤差deltaが計算済みであることを前提に、
@@ -110,7 +115,7 @@ class layer:
         self.dJdW = (self.prev.z.T @ self.delta) / batch_size
         self.dJdb = np.mean(self.delta, axis=0, keepdims=True)
 
-
+        
 
 class conv_layer(layer):
     """畳み込み層"""
@@ -252,18 +257,19 @@ class mlp:
         return iter(self.layers)
 
     def __call__(self, x) -> np.ndarray:
+        x = check_twodim(x)
         self.forward_prop(x)
         return self[-1].z.copy()
     
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
         self[0].z = x
-        return self[-1].set_z()
+        return self[-1].prop_z()
             
     def back_prop(self, t:np.ndarray) -> None:
         """教師信号ベクトルtをもとに誤差逆伝播法による学習を行う."""
         self[-1].delta = self.loss.error(t)  # 出力層の誤差はすぐに計算できる.
-        self[1].set_delta()                  # それを使って誤差を順次前の層へ逆伝播させていく.
+        self[1].prop_delta()                 # それを使って誤差を順次前の層へ逆伝播させていく.
 
     def set_gradient(self) -> None:
         """順伝播と逆伝播により出力zと誤差deltaが計算済みであることを前提に、
@@ -280,7 +286,7 @@ class mlp:
             optimizer='AdaGrad',
             max_epoch:int=100,
             batch_size=1,
-            lamb=0, 
+            lamb=0.0001, 
             *args, **kwargs
     ) -> None:
         """
@@ -355,6 +361,88 @@ class mlp:
                 warnings.warn("Can't write log because self.log is None.")
 
 
+
+class dropout_layer(layer):
+    
+    def __init__(self, W=None, b=None, h=None, size=None, first=False, ratio=0.5):
+        super().__init__(W=W, b=b, h=h, size=size, first=first)
+        self.ratio = ratio
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__} of {self.size} neurons with {self.h.__class__.__name__} activation, dropout ratio={self.ratio}>"
+    
+    @classmethod
+    def from_layer(cls, layer, ratio=0.5, first=False):
+        if first:
+            return cls(size=layer.size, first=first, ratio=ratio)
+        else:
+            return cls(W=layer.W, b=layer.b, h=layer.h, ratio=ratio)
+
+    def make_mask(self, n_input):
+        mask = (np.random.rand(1, self.size) >= self.ratio)
+        self.mask = np.vstack([mask for _ in range(n_input)])
+
+    def fire(self, input:np.ndarray) -> np.ndarray:
+        """
+        inputを入力として層内のニューロンを発火させる.
+        
+        Parameter
+        ---------
+        input: 層内の各ニューロンへの入力信号を横に並べたベクトル
+
+        Return
+        ------
+        inputを入力として活性self.uと出力self.zを更新したのち、self.zへの参照を返す
+        """
+        self.z = super().fire(input)
+        self.u *= self.mask
+        self.z *= self.mask
+        return self.z
+
+    def calc_delta(self, next_delta) -> np.ndarray:
+        """次の層における誤差から今の層の誤差を求める.
+        """
+        self.delta = super().calc_delta(next_delta)
+        self.delta *= self.mask
+        return self.delta
+
+    
+        
+@dataclasses.dataclass
+class dropout_mlp(mlp):
+    ratio: float      = dataclasses.field(default=0.5, repr=False)
+
+    @classmethod
+    def from_mlp(cls, net, ratio=0.5):
+        # make sure ratio is a list
+        if not hasattr(ratio, '__iter__'):
+            ratio = [ratio for _ in range(len(net)-1)]
+        cp = net.copy()
+        layers = [dropout_layer.from_layer(cp[0], first=True, ratio=ratio[0])]
+        for l in range(1, len(cp)-1):
+            layers.append(dropout_layer.from_layer(cp[l], ratio=ratio[l]))
+        layers.append(cp[-1])
+        return cls(layers, loss=cp.loss, ratio=ratio)
+
+    def make_mask(self, n_input):
+        for layer in self[:-1]:
+            layer.make_mask(n_input)
+    
+    def forward_prop(self, x:np.ndarray) -> None:
+        self.make_mask(x.shape[0])
+        super().forward_prop(x * self[0].mask)
+        
+
+
+            
+# @dataclasses.dataclass
+# class ensemble_mlp:
+#     mlps: Sequence[mlp] = dataclasses.field(default=None)
+#     hard: bool          = dataclasses.field(default=True)
+#     soft: bool          = dataclasses.field(default=False)
+#     pass
+
+
             
 class minibatch_iter:
     def __init__(self, X: np.ndarray, T: np.ndarray, batch_size: int, shuffle: bool=True):
@@ -404,8 +492,18 @@ class _optimizer_base:
         self.net = net
         self.eta0 = eta0
         self.eta = self.eta0
-        self.lamb = lamb
-        if self.lamb:
+        n_layer = len(self.net)
+        if hasattr(lamb, '__iter__'):
+            self.lamb = np.array(lamb)
+            if len(self.lamb) != n_layer - 1:
+                raise ValueError(
+                    "len(lamb) must be = (n_layer - 1)"
+                    " in layer-by-layer specification with iterable 'lamb'."
+                )
+        else:
+            self.lamb = np.array([lamb for _ in range(1, n_layer)])
+            
+        if np.any(self.lamb):
             self.regularization = True
         else:
             self.regularization = False
@@ -419,9 +517,9 @@ class _optimizer_base:
         raise NotImplementedError
 
     def add_regularization_term(self):
-        for layer in self.net[1:]:
-            layer.dJdW += self.lamb * layer.W
-            layer.dJdb += self.lamb * layer.b
+        for layer, lamb in zip(self.net[1:], self.lamb):
+            layer.dJdW += lamb * layer.W
+            # layer.dJdb += lamb * layer.b # バイアスには適用しない
             
     def update(self):
         if self.regularization:
@@ -524,7 +622,7 @@ class act_func:
         else:
             raise TypeError(
                 "'arg' must be either str(name of act_func) or act_func object,"
-                " not {type(arg)}"
+                f" not {type(arg)}"
             )
 
 
@@ -719,7 +817,7 @@ class logger:
     color2 : str               = dataclasses.field(default='tab:orange', repr=False)
     how: str                   = dataclasses.field(default='plot', repr=False)
     delta_epoch : int          = dataclasses.field(default=20, repr=False)
-    early_stopping: bool       = dataclasses.field(default=False)
+    early_stopping: bool       = dataclasses.field(default=True)
     patience_epoch: int        = dataclasses.field(default=8)
     _no_improvement_iter: int  = dataclasses.field(init=False, default=0, repr=False)
     tol: float                 = dataclasses.field(default=1e-4)
@@ -746,18 +844,18 @@ class logger:
         self.delta_iter = min(self.delta_iter, self._iter_per_epoch)
         # 損失の変化をどう表示するか
         if self.how == 'both':
-            self.plot, self.stdout = True, True
+            self._plot, self._stdout = True, True
         elif self.how == 'plot':
-            self.plot, self.stdout = True, False
+            self._plot, self._stdout = True, False
         elif self.how == 'stdout':
-            self.plot, self.stdout = False, True
+            self._plot, self._stdout = False, True
         elif self.how == 'off':
-            self.plot, self.stdout = False, False
+            self._plot, self._stdout = False, False
         else:
             raise ValueError("logger.how must be either of the followings: 'both', 'plot', 'stdout' or 'off'")
 
         # 損失のグラフをリアルタイムで
-        if self.plot:
+        if self._plot:
             self.fig, self.ax, self.secax = self.init_plot()
             plt.ion()
 
@@ -767,7 +865,7 @@ class logger:
             self.best_val_loss = np.inf
 
         # 学習開始時間を記録
-        self.t0 = time.time()
+        self._t0 = time.time()
 
     def init_plot(self):
         fig, ax = plt.subplots(constrained_layout=True)
@@ -811,10 +909,10 @@ class logger:
             if self._compute_val_loss:
                 logstr += f" (training), {self.val_loss[-1]:.3e} (validation)"
             
-            if self.stdout:
+            if self._stdout:
                 print(logstr)
 
-            if self.plot:
+            if self._plot:
                 self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.delta_epoch))*self.delta_epoch) * self._iter_per_epoch)
                 
                 if self._compute_val_loss:
@@ -883,8 +981,8 @@ class logger:
         
     def end(self) -> None:
         # record time elapsed
-        self.tf = time.time()
-        self.time = self.tf - self.t0
+        self._tf = time.time()
+        self.time = self._tf - self._t0
         # calculate AIC & BIC (This is correct only when using (sigmoid, cross_entropy) or (softmax, mul_cross_entropy).)
         net = self.net
         if (isinstance(net.loss, cross_entropy)
