@@ -127,7 +127,7 @@ class mlp:
     log: 'logger' = dataclasses.field(init=False, default=None, repr=False)
 
     @classmethod
-    def from_shape(cls, shape: Sequence[int], act_funcs: Sequence["act_func"], loss=None, sigmas=None) -> 'mlp':
+    def from_shape(cls, shape: Sequence[int], act_funcs: Sequence[str], loss=None, sigmas=None) -> 'mlp':
         """
         各層のニューロン数を表す配列と活性化関数を表す配列からlayerオブジェクトとmplオブジェクトを生成する。
         Parameters
@@ -164,6 +164,32 @@ class mlp:
             )
 
         return cls(layers, loss=LOSSES[loss]())
+
+    @classmethod
+    def from_params(cls, weights:Sequence, biases:Sequence, act_funcs:Sequence[str], loss=None, include_first=False):
+        """Make a mlp object by specifying paramters(=weight matrices and bias vectors) and 
+        activation functions of each layer."""
+        if not (len(weights) == len(biases) == len(act_funcs)):
+            raise ValueError("'weights', 'biases', and 'act_funcs' must have the same length.")
+
+        if include_first:
+            if not (weights[0] == biases[0] == act_funcs[0] == None):
+                warnings.warn("Your specification of the input layer parameters will be ignored because they must be set None.")
+            weights = weights[1:]
+            biases = biases[1:]
+            act_funcs = act_funcs[1:]
+
+        layers = (
+            [layer(size=np.asarray(weights[0]).shape[0], first=True)]
+            +
+            [layer(
+                W=weight,
+                b=bias,
+                h=ACTIVATIONS[act_func]()
+            ) for weight, bias, act_func in zip(weights, biases, act_funcs)]
+            )
+
+        return cls(layers, loss=LOSSES[loss]())
     
     def __post_init__(self):
         ## ネットワークの損失関数を設定 ##
@@ -188,6 +214,19 @@ class mlp:
         ## 入力層の不要なメンバ変数はNoneにする ##
         self[0].W = self[0].b = self[0].u = self[0].delta = self[0].h = self[0].dJdW = self[0].dJdb = None
 
+    def get_params(self):
+        """入力層を除く各層のパラメータのコピーと各層の活性化関数名および損失関数名を取得する.
+        """
+        return dict(
+            weights = [layer.W.copy() for layer in self[1:]],
+            biases = [layer.b.copy() for layer in self[1:]],
+            act_funcs = [layer.h.__class__.__name__ for layer in self[1:]],
+            loss = self.loss.__class__.__name__
+        )
+
+    def copy(self) -> 'mlp':
+        return self.__class__.from_params(**self.get_params())
+
     def __len__(self):
         return len(self.layers)
 
@@ -200,15 +239,6 @@ class mlp:
     def __call__(self, x) -> np.ndarray:
         self.forward_prop(x)
         return self[-1].z.copy()
-
-    def copy(self) -> 'mlp':
-        layers = []
-        for l in self:
-            if l.is_first():
-                layers.append(layer(size=l.size, W=None, b=None, h=type(l.h)()))
-            else:
-                layers.append(layer(size=l.size, W=l.W.copy(), b=l.b.copy(), h=type(l.h)()))
-        return type(self)(layers, loss=type(self.loss)())    
     
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
@@ -302,7 +332,10 @@ class mlp:
         accuracy = correct / n_sample * 100
         print(f"{accuracy:.2f} % correct")
         if log:
-            self.log.accuracy = accuracy
+            if self.log is not None:
+                self.log.accuracy = accuracy
+            else:
+                warnings.warn("Can't write log because self.log is None.")
 
 
             
@@ -597,7 +630,7 @@ class NoImprovement(Exception):
 
 @dataclasses.dataclass
 class logger:
-    """学習経過の記録"""
+    """学習経過の記録と学習曲線の描画, および早期終了の制御"""
     net : mlp                  = dataclasses.field(default=None, repr=False)
     iterations : int           = dataclasses.field(default=0)
     loss: Sequence[float]      = dataclasses.field(default_factory=list)
@@ -609,16 +642,19 @@ class logger:
     T_train : np.ndarray       = dataclasses.field(default=None, repr=False)
     X_val : np.ndarray         = dataclasses.field(default=None, repr=False)
     T_val : np.ndarray         = dataclasses.field(default=None, repr=False)
-    compute_val_loss : bool    = dataclasses.field(default=False, repr=False)
+    _compute_val_loss : bool   = dataclasses.field(default=False, repr=False)
     val_loss: Sequence[float]  = dataclasses.field(default_factory=list)
     color : str                = dataclasses.field(default='tab:blue', repr=False)
     color2 : str               = dataclasses.field(default='tab:orange', repr=False)
     how: str                   = dataclasses.field(default='plot', repr=False)
-    base : int                 = dataclasses.field(default=20, repr=False)
+    delta_epoch : int          = dataclasses.field(default=20, repr=False)
     early_stopping: bool       = dataclasses.field(default=False)
-    epochs_no_change: int      = dataclasses.field(default=8)
+    patience_epoch: int        = dataclasses.field(default=8)
     _no_improvement_iter: int  = dataclasses.field(init=False, default=0, repr=False)
     tol: float                 = dataclasses.field(default=1e-4)
+    best_params: dict          = dataclasses.field(init=False, default=None, repr=False)
+    best_params_val: dict      = dataclasses.field(init=False, default=None, repr=False)
+    stop_params: dict          = dataclasses.field(init=False, default=None, repr=False)
     AIC : float                = dataclasses.field(init=False, default=None)
     BIC : float                = dataclasses.field(init=False, default=None)
     accuracy: float            = dataclasses.field(default=None)
@@ -629,7 +665,7 @@ class logger:
         if not((self.X_val is None) and (self.T_val is None)):
             self.X_val = check_twodim(self.X_val)
             self.T_val = check_twodim(self.T_val)
-            self.compute_val_loss = True
+            self._compute_val_loss = True
         # 1エポックあたりiteration数
         self.iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
         # 記録をとる頻度はどんなに粗くても1エポック
@@ -655,7 +691,7 @@ class logger:
 
         # 損失がself.tol以上改善しなければ学習を打ち切る
         self.best_loss = np.inf
-        if self.compute_val_loss:
+        if self._compute_val_loss:
             self.best_val_loss = np.inf
 
         # 学習開始時間を記録
@@ -696,20 +732,20 @@ class logger:
                 (idx_iter + 1) * self.batch_size,
                 self.n_sample
             )
-            if self.compute_val_loss:
+            if self._compute_val_loss:
                 self.val_loss.append(self.net.loss(self.X_val, self.T_val))
             
             logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss = {self.loss[-1]:.3e}"
-            if self.compute_val_loss:
-                logstr += f" (train), {self.val_loss[-1]:.3e} (test)"
+            if self._compute_val_loss:
+                logstr += f" (training), {self.val_loss[-1]:.3e} (validation)"
             
             if self.stdout:
                 print(logstr)
 
             if self.plot:
-                self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.base))*self.base) * self.iter_per_epoch)
+                self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.delta_epoch))*self.delta_epoch) * self.iter_per_epoch)
                 
-                if self.compute_val_loss:
+                if self._compute_val_loss:
                     self.ax.plot(self.count[-2:], self.val_loss[-2:], c=self.color2)
                     if len(self.count) >= 2:
                         marker = '^' if self.val_loss[-2] < self.val_loss[-1] else 'v'
@@ -725,9 +761,9 @@ class logger:
             # 早期終了など
             last_loss = self.avrg_last_epoch(self.loss)
             
-            if self.compute_val_loss:
+            if self._compute_val_loss:
                 last_val_loss = self.avrg_last_epoch(self.val_loss)
-                # 一定以上の改善が見られない場合
+                # 検証用データに対する損失に一定以上の改善が見られない場合
                 if last_val_loss > (self.best_val_loss - self.tol):
                     self._no_improvement_iter += self.delta_iter
                 else:
@@ -735,9 +771,10 @@ class logger:
                 # 現時点までの暫定最適値を更新(検証用データ) 
                 if last_val_loss < self.best_val_loss:
                     self.best_val_loss = self.val_loss[-1]
+                    self.best_params_val = self.net.get_params()
                     
             else:
-                # 一定以上の改善が見られない場合
+                # 訓練データに対する損失に一定以上の改善が見られない場合
                 if last_loss > (self.best_loss - self.tol):
                     self._no_improvement_iter += self.delta_iter
                 else:
@@ -746,14 +783,20 @@ class logger:
             # 現時点までの暫定最適値を更新(訓練データ)
             if last_loss < self.best_loss:
                 self.best_loss = last_loss
+                self.best_params = self.net.get_params()
 
             _no_improvement_epoch = self._no_improvement_iter / self.iter_per_epoch
-            if _no_improvement_epoch > self.epochs_no_change:
-                which = 'Validation' if self.early_stopping else 'Training'
-                raise NoImprovement(
+            if _no_improvement_epoch > self.patience_epoch:
+                which = 'Validation' if self._compute_val_loss else 'Training'
+                no_improvement_msg = (
                     f"{which} loss did not improve more than "
-                    f"tol={self.tol} for {self.epochs_no_change} consecutive epochs."
+                    f"tol={self.tol} for the last {self.patience_epoch} epochs."
                 )
+                if self.early_stopping:
+                    self.stop_params_val = self.net.get_params()
+                    raise NoImprovement(no_improvement_msg)
+                self.stop_params = self.net.get_params()
+                warnings.warn(no_improvement_msg)
 
         self.iterations += 1
 
