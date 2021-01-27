@@ -356,16 +356,22 @@ class mlp:
 
             
 class minibatch_iter:
-    def __init__(self, X : np.ndarray, T : np.ndarray, batch_size : int):
+    def __init__(self, X: np.ndarray, T: np.ndarray, batch_size: int, shuffle: bool=True):
         if len(X) != len(T):
             raise ValueError("'X' and 'T' must have the same length.")
         X = check_twodim(X)
         T = check_twodim(T)
         self.n_sample = len(X)
         self.batch_size = batch_size
-        shuffle_idx = np.random.permutation(self.n_sample)
-        self.X = X[shuffle_idx]
-        self.T = T[shuffle_idx]
+        if shuffle:
+            shuffle_idx = np.random.permutation(self.n_sample)
+            self.X = X[shuffle_idx]
+            self.T = T[shuffle_idx]
+        else:
+            # shuffle=Falseはあくまでshuffleの必要性を見るためのもので, 推奨されない.
+            # shuffle=Falseとすると、学習中の損失の推移を表すグラフが異様に滑らかになる. 
+            self.X = X
+            self.T = T
 
     def __iter__(self):
         return self
@@ -682,7 +688,7 @@ class NoImprovement(Exception):
 
 @dataclasses.dataclass
 class logger:
-    """学習経過の記録と学習曲線の描画, および早期終了の制御"""
+    """学習経過の記録と損失のグラフの描画, および早期終了の制御"""
     net : mlp                  = dataclasses.field(default=None, repr=False)
     iterations : int           = dataclasses.field(default=0)
     loss: Sequence[float]      = dataclasses.field(default_factory=list)
