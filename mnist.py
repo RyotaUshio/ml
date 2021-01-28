@@ -4,6 +4,7 @@ import matplotlib.ticker as ticker
 import keras.datasets
 from typing import Sequence, List, Callable
 from mpl_toolkits.axes_grid1 import Size, Divider
+import nn
 
 
 
