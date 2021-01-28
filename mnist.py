@@ -136,6 +136,7 @@ def image_classifier(hidden_shape=[10],
                      max_epoch:int=300,
                      batch_size=200,
                      optimizer='AdaGrad',
+                     dropout=False,
                      *args, **kwargs):
     """
     画像データセット用のMLPのインターフェース. 
@@ -154,7 +155,7 @@ def image_classifier(hidden_shape=[10],
     log: nn.logger
          学習の途中経過などを記録したnn.loggerオブジェクト
     """
-    net = make_clf(hidden_shape=hidden_shape, hidden_act=hidden_act, out_act=out_act, loss=loss)
+    net = make_clf(hidden_shape=hidden_shape, hidden_act=hidden_act, out_act=out_act, loss=loss, dropout=dropout)
     # 学習を実行
     net.train(X_train, T_train, 
               eta0=eta0,
@@ -167,7 +168,7 @@ def image_classifier(hidden_shape=[10],
     return net
 
 
-def make_clf(hidden_shape, hidden_act='sigmoid', out_act='softmax', *args, **kwargs):
+def make_clf(hidden_shape, hidden_act='sigmoid', out_act='softmax', dropout=False, *args, **kwargs):
     """hidden_act : {'identity' = 'linear, 'sigmoid' = 'logistic', 'relu' = 'ReLU', 'softmax'}
     """
     # 各層の活性化関数
@@ -183,6 +184,8 @@ def make_clf(hidden_shape, hidden_act='sigmoid', out_act='softmax', *args, **kwa
     shape = [d] + hidden_shape + [K]
     # mlpオブジェクトを生成
     net = nn.mlp.from_shape(shape=shape, act_funcs=act_funcs, *args, **kwargs)
+    if dropout:
+        net = nn.dropout_mlp.from_mlp(net, dropout)
     return net
 
     
