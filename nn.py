@@ -366,7 +366,10 @@ class dropout_layer(layer):
     
     def __init__(self, W=None, b=None, h=None, size=None, first=False, ratio=0.5):
         super().__init__(W=W, b=b, h=h, size=size, first=first)
+        if not (0.0 <= ratio < 1):
+            raise ValueError("'ratio' must be 0 <= ratio < 1")
         self.ratio = ratio
+        self.now_training = False
 
     def __repr__(self):
         return f"<{self.__class__.__name__} of {self.size} neurons with {self.h.__class__.__name__} activation, dropout ratio={self.ratio}>"
@@ -395,22 +398,26 @@ class dropout_layer(layer):
         inputを入力として活性self.uと出力self.zを更新したのち、self.zへの参照を返す
         """
         self.z = super().fire(input)
-        self.u *= self.mask
-        self.z *= self.mask
+        if self.now_training:
+            self.u *= self.mask
+            self.z *= self.mask
+        else:
+            self.z *= 1 - self.ratio
         return self.z
 
     def calc_delta(self, next_delta) -> np.ndarray:
         """次の層における誤差から今の層の誤差を求める.
         """
         self.delta = super().calc_delta(next_delta)
-        self.delta *= self.mask
+        if self.now_training:
+            self.delta *= self.mask
         return self.delta
 
     
         
 @dataclasses.dataclass
 class dropout_mlp(mlp):
-    ratio: float      = dataclasses.field(default=0.5, repr=False)
+    ratio: float = dataclasses.field(default=0.5, repr=False)
 
     @classmethod
     def from_mlp(cls, net, ratio=0.5):
@@ -429,11 +436,21 @@ class dropout_mlp(mlp):
             layer.make_mask(n_input)
     
     def forward_prop(self, x:np.ndarray) -> None:
-        self.make_mask(x.shape[0])
-        super().forward_prop(x * self[0].mask)
+        if self[0].now_training:
+            self.make_mask(x.shape[0])
+            super().forward_prop(x * self[0].mask)
+        else:
+            super().forward_prop(x)
         
+    def train(self, *args, **kwargs):
+        self.set_training_flag(True)
+        super().train(*args, **kwargs)
+        self.set_training_flag(False)
 
-
+    def set_training_flag(self, b: bool):
+        for layer in self[:-1]:
+            layer.now_training = b
+        
             
 # @dataclasses.dataclass
 # class ensemble_mlp:
@@ -882,7 +899,7 @@ class logger:
         secax.set_xlabel('epochs')
         
         ax.set_xlim(left=0)
-        ax.set_ylim(bottom=0, top=None)
+        # ax.set_ylim(bottom=0, top=None)
         ax.grid(axis='y', linestyle='--')
 
         return fig, ax, secax
@@ -902,8 +919,14 @@ class logger:
                 (idx_iter + 1) * self.batch_size,
                 self.n_sample
             )
+            # 検証用データ(X_val, T_val)に対する損失を計算する
             if self._compute_val_loss:
+                dropout = isinstance(self.net, dropout_mlp)
+                if dropout:
+                    self.net.set_training_flag(False)
                 self.val_loss.append(self.net.loss(self.X_val, self.T_val))
+                if dropout:
+                    self.net.set_training_flag(True)
             
             logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss = {self.loss[-1]:.3e}"
             if self._compute_val_loss:
