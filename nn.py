@@ -8,6 +8,8 @@ import dataclasses
 from typing import Type, Sequence, List, Callable
 import warnings
 
+import utils
+
 
 
 class layer:
@@ -18,8 +20,8 @@ class layer:
         # for an non-input layer
         if not first:
             # make sure that all matrices and vectors are a two-dimensional numpy.ndarray
-            self.W = check_twodim(W)
-            self.b = check_twodim(b)
+            self.W = utils.check_twodim(W)
+            self.b = utils.check_twodim(b)
             # validation of the shape of weight matrix and bias vector
             if self.W.shape[1] != self.b.shape[1]:
                 raise ValueError(
@@ -257,10 +259,16 @@ class mlp:
         return iter(self.layers)
 
     def __call__(self, x) -> np.ndarray:
-        x = check_twodim(x)
+        x = utils.check_twodim(x)
         self.forward_prop(x)
         return self[-1].z.copy()
-    
+
+    def predict_label(self, x):
+        return utils.prob2label( self(x) )
+
+    def predict_one_of_K(self, x):
+        return utils.prob2one_of_K( self(x) )
+
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
         self[0].z = x
@@ -343,8 +351,8 @@ class mlp:
         """
         # 多クラス分類問題
         if self[-1].size > 1:
-            predicted = np.argmax(self(X), axis=1)
-            true      = np.argmax(T, axis=1)# np.dot(T, np.arange(self[-1].size))# np.argmax(T, axis=1)
+            predicted = self.predict_label(X) # np.argmax(self(X), axis=1)
+            true      = utils.vec2label(T) # np.argmax(T, axis=1)
         # 2クラス分類問題
         else:
             predicted = np.where(self(X) > 0.5, 1, 0)
@@ -452,21 +460,54 @@ class dropout_mlp(mlp):
             layer.now_training = b
         
             
-# @dataclasses.dataclass
-# class ensemble_mlp:
-#     mlps: Sequence[mlp] = dataclasses.field(default=None)
-#     hard: bool          = dataclasses.field(default=True)
-#     soft: bool          = dataclasses.field(default=False)
-#     pass
+@dataclasses.dataclass
+class ensemble_mlp:
+    nets: Sequence[mlp] = dataclasses.field(default=None)
+    how: str            = dataclasses.field(default='soft')
+    _hard: bool         = dataclasses.field(default=True, repr=False)
+    _soft: bool         = dataclasses.field(default=False, repr=False)
 
+    def __post_init__(self):
+        if self.how == 'hard':
+            self._hard = True
+        elif self.how == 'soft':
+            self._hard = False
+        else:
+            raise ValueError("'how' must be either 'hard' or 'soft.'")
+        self._soft = not self._hard
+
+    def train_all(self, *args, **kwargs):
+        for net in nets:
+            net.train(*args, **kwargs)
+    
+    def hard_ensemble(self, x):
+        agg = 0.0
+        for net in self.nets:
+            agg += net.predict_one_of_K(x)
+        return np.argmax(agg, axis=1)
+
+    def soft_ensemble(self, x):
+        agg = 0.0
+        for net in self.nets:
+            agg += net(x)
+        agg /= len(self.nets)
+        return utils.prob2label(agg)
+
+    def __call__(self, x):
+        if self._hard:
+            return self.hard_ensemble(x)
+        elif self._soft:
+            return self.soft_ensemble(x)
+        else:
+            Exception("Both of '_hard' & '_soft' are set False. Something went wrong.")
 
             
 class minibatch_iter:
     def __init__(self, X: np.ndarray, T: np.ndarray, batch_size: int, shuffle: bool=True):
         if len(X) != len(T):
             raise ValueError("'X' and 'T' must have the same length.")
-        X = check_twodim(X)
-        T = check_twodim(T)
+        X = utils.check_twodim(X)
+        T = utils.check_twodim(T)
         self.n_sample = len(X)
         self.batch_size = batch_size
         if shuffle:
@@ -850,8 +891,8 @@ class logger:
     def __post_init__(self):
         # 検証用データ(X_val, T_val)に対する誤差も計算するかどうか
         if not((self.X_val is None) and (self.T_val is None)):
-            self.X_val = check_twodim(self.X_val)
-            self.T_val = check_twodim(self.T_val)
+            self.X_val = utils.check_twodim(self.X_val)
+            self.T_val = utils.check_twodim(self.T_val)
             self._compute_val_loss = True
         # 1エポックあたりiteration数
         self._iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
@@ -899,7 +940,7 @@ class logger:
         secax.set_xlabel('epochs')
         
         ax.set_xlim(left=0)
-        # ax.set_ylim(bottom=0, top=None)
+        ax.set_ylim(bottom=0, top=None)
         ax.grid(axis='y', linestyle='--')
 
         return fig, ax, secax
@@ -923,9 +964,11 @@ class logger:
             if self._compute_val_loss:
                 dropout = isinstance(self.net, dropout_mlp)
                 if dropout:
+                    # dropoutによる訓練中の場合は、検証用データに対する損失は一時的にdropoutをoffにする
                     self.net.set_training_flag(False)
                 self.val_loss.append(self.net.loss(self.X_val, self.T_val))
                 if dropout:
+                    # 訓練に影響を与えないようにもとに戻す
                     self.net.set_training_flag(True)
             
             logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss = {self.loss[-1]:.3e}"
@@ -1128,17 +1171,3 @@ def gradient_check(net, X, T):
         print(dJdb_bp[l].shape, dJdb_nd[l].shape)
         print(f"layer{l} weight : {np.average(np.abs(dJdW_bp[l] - dJdW_nd[l]))}, {dJdW_bp[l] / dJdW_nd[l]}")
         print(f"layer{l} bias   : {np.average(np.abs(dJdb_bp[l].reshape(1,-1) - dJdb_nd[l]))}, {dJdb_bp[l] / dJdb_nd[l]}")
-
-
-
-def check_twodim(a:np.ndarray=None):
-    """Make sure an array is two-dimensinal.
-    """
-    if a is None:
-        raise TypeError("You have to pass an array-like, not None")
-    a = np.array(a)
-    if a.ndim <= 1:
-        return a.reshape((1, -1))
-    elif a.ndim >= 3:
-        raise ValueError("A three dimensional array was passed.")
-    return a
