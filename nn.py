@@ -8,6 +8,7 @@ import dataclasses
 from typing import Type, Sequence, List, Callable
 import warnings
 
+import base
 import utils
 
 
@@ -132,7 +133,7 @@ class pool_layer(layer):
 
     
 @dataclasses.dataclass
-class mlp:
+class mlp(base._estimator_base):
     """
     多層パーセプトロン(MLP: Multilayer Perceptron). 
     """
@@ -141,7 +142,18 @@ class mlp:
     log: 'logger' = dataclasses.field(init=False, default=None, repr=False)
 
     @classmethod
-    def from_shape(cls, shape: Sequence[int], act_funcs: Sequence[str], loss=None, sigmas=None) -> 'mlp':
+    def dropout_type(cls):
+        return dropout_mlp
+
+    @classmethod
+    def from_shape(
+            cls, shape: Sequence[int],
+            act_funcs: Sequence[str]=None,
+            hidden_act=None, out_act=None,
+            loss=None,
+            sigmas=None,
+            dropout: Sequence[float] =None
+    ) -> 'mlp':
         """
         各層のニューロン数を表す配列と活性化関数を表す配列からlayerオブジェクトとmplオブジェクトを生成する。
         Parameters
@@ -155,6 +167,9 @@ class mlp:
         if not hasattr(sigmas, '__iter__'):
             sigmas = [sigmas for _ in range(n_layer)]
         sigmas = list(sigmas)
+
+        # settting activation functions
+        act_funcs = cls._make_act_funcs(shape, act_funcs, hidden_act, out_act)
         
         layers = [layer(size=shape[0], first=True)]
 
@@ -177,7 +192,29 @@ class mlp:
                 )
             )
 
-        return cls(layers, loss=LOSSES[loss]())
+        net = cls(layers, loss=LOSSES[loss]())
+        if dropout:
+            net = cls.dropout_type().from_mlp(net, dropout)
+        return net
+
+    @staticmethod
+    def _make_act_funcs(shape, act_funcs, hidden_act, out_act):
+        if act_funcs is not None:
+            return act_funcs
+        
+        # 中間層の活性化関数
+        if isinstance(hidden_act, (str, act_func)):
+            hidden_act = [hidden_act for _ in range(len(shape[1:-1]))]
+        elif hasattr(hidden_act, '__iter__'):
+            hidden_act = list(hidden_act)
+        else:
+            raise TypeError("'hidden act' of an invalid type was passed.")
+        if len(hidden_act) != len(shape[1:-1]):
+            raise ValueError("Incompatible length: 'shape' & 'hidden_act'")
+    
+        return [None] + hidden_act + [out_act]
+
+
 
     @classmethod
     def from_params(cls, weights:Sequence, biases:Sequence, act_funcs:Sequence[str], loss=None, include_first=False):
@@ -351,8 +388,8 @@ class mlp:
         """
         # 多クラス分類問題
         if self[-1].size > 1:
-            predicted = self.predict_label(X) # np.argmax(self(X), axis=1)
-            true      = utils.vec2label(T) # np.argmax(T, axis=1)
+            predicted = self.predict_label(X)
+            true      = utils.vec2label(T)
         # 2クラス分類問題
         else:
             predicted = np.where(self(X) > 0.5, 1, 0)
@@ -368,9 +405,39 @@ class mlp:
             else:
                 warnings.warn("Can't write log because self.log is None.")
 
+    @classmethod
+    def fit(
+            cls,
+            X_train:np.ndarray,
+            T_train:np.ndarray,
+            hidden_shape: Sequence[int],
+            act_funcs: Sequence[str]=None,
+            hidden_act='ReLU', out_act=None,
+            loss=None,
+            sigmas=None,
+            dropout: Sequence[float] =None,
+            *args, **kwargs
+    ):
+        shape = [X_train.shape[1]] + list(hidden_shape) + [T_train.shape[1]]
+        net = cls.from_shape(
+            shape=shape,
+            act_funcs=act_funcs,
+            hidden_act=hidden_act,
+            out_act=out_act,
+            loss=loss, sigmas=sigmas, dropout=dropout,
+        )
+        net.train(X_train, T_train, *args, **kwargs)
+        return net
+
 
 
 class dropout_layer(layer):
+    """Dropout layer
+
+    References
+    ----------
+    https://github.com/chainer/chainer/blob/eddf10e4af3756dbf32149d0b6ad91cebcf529c1/chainer/functions/noise/dropout.py
+    """
     
     def __init__(self, W=None, b=None, h=None, size=None, first=False, ratio=0.5):
         super().__init__(W=W, b=b, h=h, size=size, first=first)
@@ -461,11 +528,9 @@ class dropout_mlp(mlp):
         
             
 @dataclasses.dataclass
-class ensemble_mlp:
-    nets: Sequence[mlp] = dataclasses.field(default=None)
+class ensemble_mlp(base._estimator_base):
+    nets: Sequence[mlp]
     how: str            = dataclasses.field(default='soft')
-    _hard: bool         = dataclasses.field(default=True, repr=False)
-    _soft: bool         = dataclasses.field(default=False, repr=False)
 
     def __post_init__(self):
         if self.how == 'hard':
@@ -500,6 +565,110 @@ class ensemble_mlp:
             return self.soft_ensemble(x)
         else:
             Exception("Both of '_hard' & '_soft' are set False. Something went wrong.")
+
+
+@dataclasses.dataclass
+class mlp_classifier(mlp):
+    classification_type: str = dataclasses.field(init=False)
+
+    @classmethod
+    def dropout_type(cls):
+        return dropout_mlp_classifier
+
+    def __post_init__(self):
+        super().__post_init__()
+        n_output = self.shape[-1]
+        if n_output >= 2:
+            self.classification_type = 'multi'
+        elif n_output == 1:
+            self.classification_type = 'binary'
+
+    @classmethod
+    def from_shape(cls, shape, hidden_act='ReLU', *args, **kwargs):
+        out_act = cls._get_out_act_name(shape[-1])
+        for varname in ['act_funcs', 'out_act']:
+            if varname in kwargs:
+                del kwargs[varname]
+
+        return super().from_shape(shape, hidden_act=hidden_act, out_act=out_act, *args, **kwargs)
+    
+    @classmethod
+    def fit(
+            cls,
+            X_train:np.ndarray,
+            T_train:np.ndarray,
+            hidden_shape: Sequence[int],
+            hidden_act='ReLU',
+            loss=None,
+            sigmas=None,
+            dropout: Sequence[float] =None,
+            *args, **kwargs
+    ):
+        return super().fit(
+            X_train=X_train, T_train=T_train, hidden_shape=hidden_shape,
+            hidden_act=hidden_act,
+            loss=loss, sigmas=sigmas, dropout=dropout, *args, **kwargs
+        )
+
+    @staticmethod
+    def _get_out_act_name(n_output):
+        # 出力層の活性化関数
+        if n_output >= 2:
+            out_act = 'softmax'
+        elif n_output == 1:
+            out_act = 'sigmoid'
+        else:
+            raise ValueError(f"'n_output' must be a positive integer, not {n_output}.")
+        return out_act
+
+
+
+
+@dataclasses.dataclass
+class dropout_mlp_classifier(dropout_mlp):
+    pass
+
+
+
+@dataclasses.dataclass
+class mlp_regressor(mlp):
+    
+    @classmethod
+    def dropout_type(cls):
+        return dropout_mlp_regressor
+
+    @classmethod
+    def from_shape(cls, shape, hidden_act='ReLU', *args, **kwargs):
+        for varname in ['act_funcs', 'out_act']:
+            if varname in kwargs:
+                del kwargs[varname]
+
+        return super().from_shape(shape, hidden_act=hidden_act, out_act='linear', *args, **kwargs)
+
+    @classmethod
+    def fit(
+            cls,
+            X_train:np.ndarray,
+            T_train:np.ndarray,
+            hidden_shape: Sequence[int],
+            hidden_act='ReLU',
+            loss=None,
+            sigmas=None,
+            dropout: Sequence[float] =None,
+            *args, **kwargs
+    ):
+        return super().fit(
+            X_train=X_train, T_train=T_train, hidden_shape=hidden_shape,
+            hidden_act=hidden_act, #out_act='linear',
+            loss=loss, sigmas=sigmas, dropout=dropout, *args, **kwargs
+        )
+
+
+    
+@dataclasses.dataclass
+class dropout_mlp_regressor(dropout_mlp):
+    pass
+    
 
             
 class minibatch_iter:
@@ -873,6 +1042,7 @@ class logger:
     val_loss: Sequence[float]  = dataclasses.field(default_factory=list)
     color : str                = dataclasses.field(default='tab:blue', repr=False)
     color2 : str               = dataclasses.field(default='tab:orange', repr=False)
+    marker: bool               = dataclasses.field(default=False, repr=False)
     how: str                   = dataclasses.field(default='plot', repr=False)
     delta_epoch : int          = dataclasses.field(default=20, repr=False)
     early_stopping: bool       = dataclasses.field(default=True)
@@ -983,7 +1153,7 @@ class logger:
                 
                 if self._compute_val_loss:
                     self.ax.plot(self.count[-2:], self.val_loss[-2:], c=self.color2)
-                    if len(self.count) >= 2:
+                    if self.marker and (len(self.count) >= 2):
                         marker = '^' if self.val_loss[-2] < self.val_loss[-1] else 'v'
                         self.ax.scatter(self.count[-1:], self.val_loss[-1:],
                                         marker=marker, fc=self.color2, ec='k')
