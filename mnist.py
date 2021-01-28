@@ -3,132 +3,130 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import keras.datasets
 from typing import Sequence, List, Callable
-from importlib import reload
-import nn
-reload(nn)
 from mpl_toolkits.axes_grid1 import Size, Divider
 
 
-### データを読み込む
-if any([name not in globals() for name in ['cur_data', 'cur_rate']]):
-    cur_data = cur_rate = None
+# ### データを読み込む
+# if any([name not in globals() for name in ['cur_data', 'cur_rate']]):
+#     cur_data = cur_rate = None
 
-def load(
-        rate = 1,
-        data = keras.datasets.mnist,
-        negative=False
-        ):
-    global cur_rate, cur_data
+# def load(
+#         rate = 1,
+#         data = keras.datasets.mnist,
+#         negative=False
+#         ):
+#     global cur_rate, cur_data
     
-    if any([name not in globals() for name in [
-            'train_images',
-            'train_labels',
-            'test_images',
-            'test_labels',
-            'X_train',
-            'T_train',
-            'X_test',
-            'T_test']]) or rate != cur_rate or data != cur_data:
+#     if any([name not in globals() for name in [
+#             'train_images',
+#             'train_labels',
+#             'test_images',
+#             'test_labels',
+#             'X_train',
+#             'T_train',
+#             'X_test',
+#             'T_test']]) or rate != cur_rate or data != cur_data:
 
-        global train_images, train_labels, test_images, test_labels, X_train, T_train, X_test, T_test
+#         global train_images, train_labels, test_images, test_labels, X_train, T_train, X_test, T_test
 
-        (train_images, train_labels), (test_images, test_labels) = data.load_data()
-        X_train, T_train = convert(train_images, train_labels, rate)
-        X_test, T_test = convert(test_images, test_labels, rate)
+#         (train_images, train_labels), (test_images, test_labels) = data.load_data()
+#         X_train, T_train = convert(train_images, train_labels, rate)
+#         X_test, T_test = convert(test_images, test_labels, rate)
 
-        if negative:
-            X_train = 1.0 - X_train
-            X_test = 1.0 - X_test
+#         if negative:
+#             X_train = 1.0 - X_train
+#             X_test = 1.0 - X_test
 
-        cur_data = data
-        cur_rate = rate
+#         cur_data = data
+#         cur_rate = rate
 
 
-## データセットの整形用の諸関数
+# ## データセットの整形用の諸関数
 
-def one_of_K(labels:np.ndarray):
-    """
-    正解ラベルの集合labelsを1 of K符号化法によりベクトル化する
-    """
-    I = np.identity(labels.max() - labels.min() + 1)
-    T = np.array([I[int(i)] for i in labels])
-    return T
+# def one_of_K(labels:np.ndarray):
+#     """
+#     正解ラベルの集合labelsを1 of K符号化法によりベクトル化する
+#     """
+#     I = np.identity(labels.max() - labels.min() + 1)
+#     T = np.array([I[int(i)] for i in labels])
+#     return T
 
-def vec2num(one_of_K:Sequence):
-    """1 of K符号化されたベクトルone_of_Kをクラス番号に変換する"""
-    ndim = one_of_K.ndim
-    if ndim == 1:
-        return np.argmax(one_of_K)
-    elif ndim == 2:
-        return np.array([vec2num(t) for t in one_of_K])
-    else:
-        raise ValueError(f"expected one_of_K.ndim <= 2, got {ndim}")
+# def vec2num(one_of_K:Sequence):
+#     """1 of K符号化されたベクトルone_of_Kをクラス番号に変換する"""
+#     ndim = one_of_K.ndim
+#     if ndim == 1:
+#         return np.argmax(one_of_K)
+#     elif ndim == 2:
+#         return np.array([vec2num(t) for t in one_of_K])
+#     else:
+#         raise ValueError(f"expected one_of_K.ndim <= 2, got {ndim}")
 
-def normalize(x:np.ndarray, range:Sequence=None):
-    """
-    入力パターンxの各要素を0-1に正規化する.
-    Parameters
-    ----------
-    x: 入力パターン(の集合)
-    range: (最小値, 最大値)の配列
-    """
-    if range is None:
-        range = (x.min(), x.max())
-    return (x - range[0]) / (range[1]-range[0])
+# def normalize(x:np.ndarray, range:Sequence=None):
+#     """
+#     入力パターンxの各要素を0-1に正規化する.
+#     Parameters
+#     ----------
+#     x: 入力パターン(の集合)
+#     range: (最小値, 最大値)の配列
+#     """
+#     if range is None:
+#         range = (x.min(), x.max())
+#     return (x - range[0]) / (range[1]-range[0])
 
-def convert(images, labels, rate=1):
-    """
-    画像の集合imagesと正解ラベルの集合labelsを、ニューラルネットワークに入力できる形に変換する
-    """
-    X = np.array([down_sample(image, rate).flatten() for image in images])
-    X = normalize(X)
-    T = one_of_K(labels)
-    return X, T
+# def convert(images, labels, rate=1):
+#     """
+#     画像の集合imagesと正解ラベルの集合labelsを、ニューラルネットワークに入力できる形に変換する
+#     """
+#     X = np.array([down_sample(image, rate).flatten() for image in images])
+#     X = normalize(X)
+#     T = one_of_K(labels)
+#     return X, T
 
-def add_noise(image, prob):
-    """画像imageに, [0,1]上の一様分布からサンプリングしたprob %のノイズを付加する. in-placeな処理."""
-    if prob == 0:
-        return
-    noise_num = int(image.size * prob)
-    idx = np.random.randint(0, image.size, noise_num)
-    image[idx] = np.random.rand(noise_num)
+# def add_noise(image, prob):
+#     """画像imageに, [0,1]上の一様分布からサンプリングしたprob %のノイズを付加する. in-placeな処理."""
+#     if prob == 0:
+#         return
+#     noise_num = int(image.size * prob)
+#     idx = np.random.randint(0, image.size, noise_num)
+#     image[idx] = np.random.rand(noise_num)
 
-def add_noise_all(images, prob):
-    """imagesに含まれるすべての画像imageに対してadd_noiseと同様のノイズを付加し、新しいオブジェクトとして返す. 非in-inplace."""
-    cp = images.copy()
-    for image in cp:
-        add_noise(image, prob)
-    return cp
+# def add_noise_all(images, prob):
+#     """imagesに含まれるすべての画像imageに対してadd_noiseと同様のノイズを付加し、新しいオブジェクトとして返す. 非in-inplace."""
+#     cp = images.copy()
+#     for image in cp:
+#         add_noise(image, prob)
+#     return cp
 
-def imshow(image, ax=None, shape=None):
-    """画像imageをaxに表示・可視化する. """
-    if ax is None:
-        ax = plt.gca()
-    if image.ndim == 1:
-        image = vec2img(image, shape=shape)
-    ax.imshow(image, cmap=plt.cm.gray)
-    ax.xaxis.set_visible(False)
-    ax.yaxis.set_visible(False)
+# def imshow(image, ax=None, shape=None):
+#     """画像imageをaxに表示・可視化する. """
+#     if ax is None:
+#         ax = plt.gca()
+#     if image.ndim == 1:
+#         image = vec2img(image, shape=shape)
+#     ax.imshow(image, cmap=plt.cm.gray)
+#     ax.xaxis.set_visible(False)
+#     ax.yaxis.set_visible(False)
 
-def down_sample(image, rate):
-    """画像imageを1/rateにダウンサンプリングして返す. """
-    if rate == 1:
-        return image
-    hi = int(np.ceil(image.shape[0]/rate))
-    wid = int(np.ceil(image.shape[1]/rate))
-    ret = [[image[i*rate][j*rate] for j in range(wid)] for i in range(hi)]
-    return np.array(ret)
+# def down_sample(image, rate):
+#     """画像imageを1/rateにダウンサンプリングして返す. """
+#     if rate == 1:
+#         return image
+#     hi = int(np.ceil(image.shape[0]/rate))
+#     wid = int(np.ceil(image.shape[1]/rate))
+#     ret = [[image[i*rate][j*rate] for j in range(wid)] for i in range(hi)]
+#     return np.array(ret)
 
-def is_rgb(image):
-    return image.ndim == 3
+# def is_rgb(image):
+#     return image.ndim == 3
 
-def is_grayscale(image):
-    return image.ndim == 2
+# def is_grayscale(image):
+#     return image.ndim == 2
 
-def is_flatten(image):
-    return image.ndim == 1
+# def is_flatten(image):
+#     return image.ndim == 1
     
-def image_classifier(hidden_shape=[10],
+def image_classifier(X_train, T_train,
+                     hidden_shape=[10],
                      hidden_act='ReLU',
                      out_act='softmax',
                      loss=None,
@@ -155,7 +153,11 @@ def image_classifier(hidden_shape=[10],
     log: nn.logger
          学習の途中経過などを記録したnn.loggerオブジェクト
     """
-    net = make_clf(hidden_shape=hidden_shape, hidden_act=hidden_act, out_act=out_act, loss=loss, dropout=dropout)
+    net = make_clf(shape=[X_train[0].size] + hidden_shape + [T_train[0].size],
+                   hidden_act=hidden_act,
+                   out_act=out_act,
+                   loss=loss,
+                   dropout=dropout)
     # 学習を実行
     net.train(X_train, T_train, 
               eta0=eta0,
@@ -168,20 +170,15 @@ def image_classifier(hidden_shape=[10],
     return net
 
 
-def make_clf(hidden_shape, hidden_act='sigmoid', out_act='softmax', dropout=False, *args, **kwargs):
+def make_clf(shape, hidden_act='sigmoid', out_act='softmax', dropout=False, *args, **kwargs):
     """hidden_act : {'identity' = 'linear, 'sigmoid' = 'logistic', 'relu' = 'ReLU', 'softmax'}
     """
     # 各層の活性化関数
     act_funcs = (
         [None] +
-        [hidden_act for _ in range(len(hidden_shape))] +
+        [hidden_act for _ in range(len(shape[1:-1]))] +
         [out_act]
     )
-    # 入力次元数
-    d = X_train[0].size
-    # 出力次元数
-    K = T_train[0].size
-    shape = [d] + hidden_shape + [K]
     # mlpオブジェクトを生成
     net = nn.mlp.from_shape(shape=shape, act_funcs=act_funcs, *args, **kwargs)
     if dropout:
@@ -263,12 +260,12 @@ def hidden_show(net, figsize=(8-1/4, 11-3/4)):
 #     """Unsharpe Masking."""
 #     return (normalize(img + k * hipass(img, *args, **kwargs)) * 255).astype(np.uint64)
 
-def vec2img(vec, shape=None):
-    """1次元の特徴ベクトルを2次元配列に戻す"""
-    if shape is None:
-        tmp = int(np.sqrt(vec.size))
-        shape = (tmp, tmp)
-    return vec.reshape(shape)
+# def vec2img(vec, shape=None):
+#     """1次元の特徴ベクトルを2次元配列に戻す"""
+#     if shape is None:
+#         tmp = int(np.sqrt(vec.size))
+#         shape = (tmp, tmp)
+#     return vec.reshape(shape)
     
 def rep():
     if cur_data != keras.datasets.mnist:
