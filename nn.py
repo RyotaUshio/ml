@@ -22,7 +22,7 @@ class layer:
     Parameters
     ----------
     W : array_like, default=None
-        The weight matrices between the layer and the previous one.
+        The weight matrix between the layer and the previous one.
         The (i, j) element represents the weight value between the i-th neuron
         of the previous layer and the j-th in this layer. If `first=True`, 
         this parameter is ignored.
