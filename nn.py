@@ -36,9 +36,9 @@ class layer:
         `first == True`. Otherwise, it is inferred from the shapes of `W`
         and `b`.
     first : bool, default=None
-        If true, the layer is treated as the input layer, and parameters except
-        for `size` will be ignored. In this case, `size` must be specified 
-        because it cannot be inferred from other argments.
+        If true, the layer is treated as an input layer of a network, and 
+        parameters except for `size` will be ignored. In this case, `size` 
+        must be specified because it cannot be inferred from other argments.
 
     Attributes
     ----------
