@@ -1,74 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import keras.datasets
-from typing import Sequence, List, Callable
 from mpl_toolkits.axes_grid1 import Size, Divider
-import nn
 
 
-
-def image_classifier(X_train, T_train,
-                     hidden_shape=[10],
-                     hidden_act='ReLU',
-                     out_act='softmax',
-                     loss=None,
-                     eta0:float=0.1,
-                     max_epoch:int=300,
-                     batch_size=200,
-                     optimizer='AdaGrad',
-                     dropout=False,
-                     *args, **kwargs):
-    """
-    画像データセット用のMLPのインターフェース. 
-    10クラス分類用のmlpオブジェクトを生成し、MNISTデータセットを学習させ、そのmlpオブジェクトとlogを返す。
-    Parameters
-    ----------
-    hidden_shape: Sequence of int
-    hidden_act : {'identity' = 'linear, 'sigmoid' = 'logistic', 'relu' = 'ReLU', 'softmax'}
-    others:
-         mlpオブジェクトのtrainメソッドの引数
-
-    Returns
-    -------
-    net: nn.mlp
-         学習済みmlpオブジェクト
-    log: nn.logger
-         学習の途中経過などを記録したnn.loggerオブジェクト
-    """
-    net = make_clf(shape=[X_train[0].size] + hidden_shape + [T_train[0].size],
-                   hidden_act=hidden_act,
-                   out_act=out_act,
-                   loss=loss,
-                   dropout=dropout)
-    # 学習を実行
-    net.train(X_train, T_train, 
-              eta0=eta0,
-              max_epoch=max_epoch,
-              batch_size=batch_size,
-              optimizer='AdaGrad',
-              *args, **kwargs
-    )
-    # 学習済みのmlpオブジェクトを返す
-    return net
-
-
-def make_clf(shape, hidden_act='sigmoid', out_act='softmax', dropout=False, *args, **kwargs):
-    """hidden_act : {'identity' = 'linear, 'sigmoid' = 'logistic', 'relu' = 'ReLU', 'softmax'}
-    """
-    # 各層の活性化関数
-    act_funcs = (
-        [None] +
-        [hidden_act for _ in range(len(shape[1:-1]))] +
-        [out_act]
-    )
-    # mlpオブジェクトを生成
-    net = nn.mlp.from_shape(shape=shape, act_funcs=act_funcs, *args, **kwargs)
-    if dropout:
-        net = nn.dropout_mlp.from_mlp(net, dropout)
-    return net
-
-    
 def hidden_test(net, j):
     w = normalize(net[1].W[:, j])
     y = np.argmax(net(w))
