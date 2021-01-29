@@ -1,4 +1,5 @@
-"""Multilayer Perceptron."""
+"""Multi-layer Perceptron.
+"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,15 +9,63 @@ import dataclasses
 from typing import Type, Sequence, List, Callable
 import warnings
 
+# from . 
+# from .
 import base
 import utils
 
 
 
 class layer:
+    """A layer in multi-layer perceptron.
+    
+    Parameters
+    ----------
+    W : array_like, default=None
+        The weight matrices between the layer and the previous one.
+        The (i, j) element represents the weight value between the i-th neuron
+        of the previous layer and the j-th in this layer. If `first=True`, 
+        this parameter is ignored.
+    b : array_like, default=None
+        The bias vector. If `first=True`, this parameter is ignored.
+    h : str or act_func, defalut=None
+        The activation function. If `str` is passed, it is iterpreted as 
+        the name of one. If `first=True`, this parameter is ignored.
+    size : int, default=None
+        Number of neurons contained in the layer. It is necessary only if 
+        `first == True`. Otherwise, it is inferred from the shapes of `W`
+        and `b`.
+    first : bool, default=None
+        If true, the layer is treated as the input layer, and parameters except
+        for `size` will be ignored. In this case, `size` must be specified 
+        because it cannot be inferred from other argments.
+
+    Attributes
+    ----------
+    W : np.ndarray
+        The weight matrix between the layer and the previous one.
+    b : np.ndarray
+        The bias vector.
+    h : act_func
+        The activation function.
+    size : int
+        Number of neurons contained in the layer.
+    u : np.ndarray
+        `u = x @ W + b`, where `x` denotes the input vector.
+    z : np.ndarray
+        The output vector of the layer, computed as `z = h(u)`.
+    delta : np.ndarray
+        The error vector of the layer.
+    dJdW : np.ndarray
+        Gradient vector of loss with repect to the weight matrix.
+    dJdb : np.ndarray
+        Gradient vector of loss with repect to the bias vector.
+    prev : layer or None
+        The previous layer in the network.
+    next : layer or None
+        The next layer in the network.
     """
-    MLPの各層.
-    """
+    
     def __init__(self, W:Sequence=None, b:Sequence=None, h:'act_func'=None, size:int=None, first:bool=False):
         # for an non-input layer
         if not first:
@@ -26,7 +75,9 @@ class layer:
             # validation of the shape of weight matrix and bias vector
             if self.W.shape[1] != self.b.shape[1]:
                 raise ValueError(
-                    "Expected self.W.shape[1] == self.b.shape[1], got self.W of shape {self.W.shape} and self.b of shape {self.b.shape}"
+                    "Expected self.W.shape[1] == self.b.shape[1],"
+                    f"got self.W of shape {self.W.shape} and "
+                    f"self.b of shape {self.b.shape}"
                 )
             # validate and set self.size (number of the neurons included in this layer)
             if (size is not None) and (self.W.shape[1] != size):
@@ -39,7 +90,8 @@ class layer:
         else:
             if size is None:
                 raise ValueError(
-                    "The size of an input layer must be specified because it cannot be inferred from W.shape or b.shape"
+                    "The size of an input layer must be specified"
+                    " because it cannot be inferred from W.shape or b.shape"
                 )
             self.size = size
             if not (W == b == h == None):
@@ -134,15 +186,42 @@ class pool_layer(layer):
     
 @dataclasses.dataclass
 class mlp(base._estimator_base):
+    """Base class for MLP: multi-layer perceptron.
+
+    Parameters
+    ----------
+    layers : Sequence[layer]
+        A sequence of layer objects contained in the network.
+    loss : loss_func, default=None
+        The loss function which will be used in network training process with 
+        back propagation. If not given, it will be set automatically according 
+        to the type of the activation function of the last layer (i.e. when 
+        the last layer has logistic sigmoid activation, then the loss will be 
+        set to cross entropy error).
+
+    Attributes
+    ----------
+    layers : Sequence[layer]
+        A sequence of `layer` objects contained in the network.
+    loss : loss_func
+        The loss function which will be used in network training process with 
+        back propagation.
+    shape : tuple
+        The number of neurons contained in each layer of the network, that is,
+        a tuple of (n_unit_1st_layer, n_unit_2nd_layer, ..., n_unit_last_layer).
+    log : logger
+        An `logger` object, which records various information, including the 
+        value of loss function at each epoch in training, AIC and BIC and so 
+        on. It also controls the whole process of early stopping. For more 
+        details, see `logger`'s doc.
     """
-    多層パーセプトロン(MLP: Multilayer Perceptron). 
-    """
-    layers: Sequence[layer]                             # 各層を表すlayerオブジェクトを並べた配列
-    loss: 'loss_func' = dataclasses.field(default=None) # 損失関数
+    
+    layers: Sequence[layer]
+    loss: 'loss_func' = dataclasses.field(default=None)
     log: 'logger' = dataclasses.field(init=False, default=None, repr=False)
 
     @classmethod
-    def dropout_type(cls):
+    def _dropout_type(cls):
         return dropout_mlp
 
     @classmethod
@@ -194,7 +273,7 @@ class mlp(base._estimator_base):
 
         net = cls(layers, loss=LOSSES[loss]())
         if dropout:
-            net = cls.dropout_type().from_mlp(net, dropout)
+            net = cls._dropout_type().from_mlp(net, dropout)
         return net
 
     @staticmethod
@@ -327,10 +406,10 @@ class mlp(base._estimator_base):
             self,
             X_train:np.ndarray,
             T_train:np.ndarray,
-            eta0:float=0.005,
+            eta0:float=0.05,
             optimizer='AdaGrad',
             max_epoch:int=100,
-            batch_size=1,
+            batch_size=200,
             lamb=0.0001, 
             *args, **kwargs
     ) -> None:
@@ -382,9 +461,11 @@ class mlp(base._estimator_base):
         finally:
             self.log.end()
     
-    def test(self, X:np.ndarray, T:np.ndarray, log:bool=True) -> None:
+    def test(self, X:np.ndarray, T:np.ndarray, log:bool=True, verbose=False) -> float:
         """テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を計算する.
         selfは分類器と仮定する. 
+
+        将来のアップデートでevaluatorクラスに移動するかも。
         """
         # 多クラス分類問題
         if self[-1].size > 1:
@@ -397,13 +478,17 @@ class mlp(base._estimator_base):
         
         n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
         n_sample = len(X)                                  # 全サンプル数
-        accuracy = n_correct / n_sample * 100              # 正解率[%]
-        print(f"Accuracy = {accuracy:.4f} %")
+        accuracy = n_correct / n_sample                    # 正解率
         if log:
             if self.log is not None:
                 self.log.accuracy = accuracy
             else:
                 warnings.warn("Can't write log because self.log is None.")
+
+        if verbose:
+            print(f"Accuracy: {accuracy * 100:.4f} %")
+                
+        return accuracy
 
     @classmethod
     def fit(
@@ -461,17 +546,6 @@ class dropout_layer(layer):
         self.mask = np.vstack([mask for _ in range(n_input)])
 
     def fire(self, input:np.ndarray) -> np.ndarray:
-        """
-        inputを入力として層内のニューロンを発火させる.
-        
-        Parameter
-        ---------
-        input: 層内の各ニューロンへの入力信号を横に並べたベクトル
-
-        Return
-        ------
-        inputを入力として活性self.uと出力self.zを更新したのち、self.zへの参照を返す
-        """
         self.z = super().fire(input)
         if self.now_training:
             self.u *= self.mask
@@ -481,8 +555,6 @@ class dropout_layer(layer):
         return self.z
 
     def calc_delta(self, next_delta) -> np.ndarray:
-        """次の層における誤差から今の層の誤差を求める.
-        """
         self.delta = super().calc_delta(next_delta)
         if self.now_training:
             self.delta *= self.mask
@@ -569,10 +641,58 @@ class ensemble_mlp(base._estimator_base):
 
 @dataclasses.dataclass
 class mlp_classifier(mlp):
+    """Classification with MLP: multi-layer perceptron.
+
+    Parameters
+    ----------
+    (This class is supposed to be constructed via `from_shape()`, not 
+    by calling `__init__()` directly.)
+    
+    layers : Sequence[layer]
+        A sequence of layer objects contained in the network.
+    loss : loss_func, default=None
+        The loss function which will be used in network training process with 
+        back propagation. If not given, it will be set automatically according 
+        to the type of the activation function of the last layer (i.e. when 
+        the last layer has logistic sigmoid activation, then the loss will be 
+        set to cross entropy error).
+
+    Attributes
+    ----------
+    layers : Sequence[layer]
+        A sequence of `layer` objects contained in the network.
+    loss : loss_func
+        The loss function which will be used in network training process with 
+        back propagation.
+    shape : tuple
+        The number of neurons contained in each layer of the network, that is,
+        a tuple of (n_unit_1st_layer, n_unit_2nd_layer, ..., n_unit_last_layer).
+    log : logger
+        An `logger` object, which records various information, including the 
+        value of loss function at each epoch in training, AIC and BIC and so 
+        on. It also controls the whole process of early stopping. For more 
+        details, see `logger`'s doc.
+    classification_type : {'binary', 'multi'}
+        The type of classification.
+    
+    Examples
+    --------
+    >>> import nn, utils
+    >>> (X_train, T_train), (X_test, T_test) = utils.load()
+    >>> n_feature, n_target = X_train.shape[1], T_train.shape[1]
+    >>> n_hidden_units = 20
+    >>> net = nn.mlp_classifier.from_shape(
+    ...     [n_feature, n_hidden_units, n_target]
+    ... )
+    >>> net.train(X_train, T_train)
+    >>> net.test(X_test, T_test, verbose=True)
+    Accuracy: 97.4300 %
+    """
+    
     classification_type: str = dataclasses.field(init=False)
 
     @classmethod
-    def dropout_type(cls):
+    def _dropout_type(cls):
         return dropout_mlp_classifier
 
     def __post_init__(self):
@@ -632,9 +752,43 @@ class dropout_mlp_classifier(dropout_mlp):
 
 @dataclasses.dataclass
 class mlp_regressor(mlp):
+    """Regression with MLP: multi-layer perceptron.
+
+    Parameters
+    ----------
+    (This class is supposed to be constructed via `from_shape()`, not 
+    by calling `__init__()` directly.)
+    
+    layers : Sequence[layer]
+        A sequence of layer objects contained in the network.
+    loss : loss_func, default=None
+        The loss function which will be used in network training process with 
+        back propagation. If not given, it will be set automatically according 
+        to the type of the activation function of the last layer (i.e. when 
+        the last layer has logistic sigmoid activation, then the loss will be 
+        set to cross entropy error).
+
+    Attributes
+    ----------
+    layers : Sequence[layer]
+        A sequence of `layer` objects contained in the network.
+    loss : loss_func
+        The loss function which will be used in network training process with 
+        back propagation.
+    shape : tuple
+        The number of neurons contained in each layer of the network, that is,
+        a tuple of (n_unit_1st_layer, n_unit_2nd_layer, ..., n_unit_last_layer).
+    log : logger
+        An `logger` object, which records various information, including the 
+        value of loss function at each epoch in training, AIC and BIC and so 
+        on. It also controls the whole process of early stopping. For more 
+        details, see `logger`'s doc.
+    classification_type : {'binary', 'multi'}
+        The type of classification.
+    """
     
     @classmethod
-    def dropout_type(cls):
+    def _dropout_type(cls):
         return dropout_mlp_regressor
 
     @classmethod
@@ -659,7 +813,7 @@ class mlp_regressor(mlp):
     ):
         return super().fit(
             X_train=X_train, T_train=T_train, hidden_shape=hidden_shape,
-            hidden_act=hidden_act, #out_act='linear',
+            hidden_act=hidden_act,
             loss=loss, sigmas=sigmas, dropout=dropout, *args, **kwargs
         )
 
@@ -898,6 +1052,17 @@ class sigmoid(act_func):
 
 
 @dataclasses.dataclass
+class tanh(act_func):
+    """tanh関数"""        
+    def __call__(self, u):
+        return np.tanh(self.param * u)
+    
+    def val2deriv(self, z):
+        return self.param * (1.0 - z*z)
+
+
+    
+@dataclasses.dataclass
 class ReLU(act_func):
     """ReLU"""
     def __call__(self, u):
@@ -931,7 +1096,6 @@ class softmax(act_func):
     
     def val2deriv(self, z):
         return np.array([np.diag(z[i]) - np.outer(z[i], z[i]) for i in range(len(z))])
-        # raise Exception("出力層の活性化関数の微分は使わないはず")
 
 
 ACTIVATIONS = {
@@ -941,6 +1105,7 @@ ACTIVATIONS = {
     'threshold'  : step,
     'sigmoid'    : sigmoid,
     'logistic'   : sigmoid,
+    'tanh'       : tanh,
     'relu'       : ReLU,
     'ReLU'       : ReLU,
     'LeakyReLU'  : LeakyReLU,
@@ -1056,6 +1221,7 @@ class logger:
     AIC : float                = dataclasses.field(init=False, default=None)
     BIC : float                = dataclasses.field(init=False, default=None)
     accuracy: float            = dataclasses.field(default=None)
+    val_accuracy: float        = dataclasses.field(default_factory=list)
     time: float                = dataclasses.field(default=None)
 
     def __post_init__(self):
@@ -1137,6 +1303,7 @@ class logger:
                     # dropoutによる訓練中の場合は、検証用データに対する損失は一時的にdropoutをoffにする
                     self.net.set_training_flag(False)
                 self.val_loss.append(self.net.loss(self.X_val, self.T_val))
+                self.val_accuracy.append(self.net.test(self.X_val, self.T_val, False))
                 if dropout:
                     # 訓練に影響を与えないようにもとに戻す
                     self.net.set_training_flag(True)
@@ -1157,6 +1324,8 @@ class logger:
                         marker = '^' if self.val_loss[-2] < self.val_loss[-1] else 'v'
                         self.ax.scatter(self.count[-1:], self.val_loss[-1:],
                                         marker=marker, fc=self.color2, ec='k')
+                    self.ax.plot(self.count[-2:], self.val_accuracy[-2:],
+                                 c=self.color2, linestyle='--')
 
                 self.ax.plot(self.count[-2:], self.loss[-2:], c=self.color)
                 self.ax.set_title(logstr, fontsize=10)
