@@ -783,8 +783,6 @@ class mlp_regressor(mlp):
         value of loss function at each epoch in training, AIC and BIC and so 
         on. It also controls the whole process of early stopping. For more 
         details, see `logger`'s doc.
-    classification_type : {'binary', 'multi'}
-        The type of classification.
     """
     
     @classmethod
