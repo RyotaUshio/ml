@@ -274,6 +274,8 @@ class mlp(base._estimator_base):
         of loss function at each epoch in training, AIC and BIC and so 
         on. It also controls the whole process of early stopping. For more 
         details, see `logger`'s doc.
+    dropout : bool
+        Whether to use Dropout or not.
     """
     
     layers: Sequence[layer]
@@ -673,6 +675,8 @@ class mlp_classifier(mlp):
         value of loss function at each epoch in training, AIC and BIC and so 
         on. It also controls the whole process of early stopping. For more 
         details, see `logger`'s doc.
+    dropout : bool
+        Whether to use Dropout or not.
     classification_type : {'binary', 'multi'}
         The type of classification.
     
@@ -701,13 +705,16 @@ class mlp_classifier(mlp):
             self.classification_type = 'binary'
 
     @classmethod
-    def from_shape(cls, shape, hidden_act='ReLU', *args, **kwargs):
+    def from_shape(cls, shape, hidden_act='ReLU', loss=None, sigmas=None, dropout_ratio=None) -> 'mlp_classifier':
         out_act = cls._get_out_act_name(shape[-1])
-        for varname in ['act_funcs', 'out_act']:
-            if varname in kwargs:
-                del kwargs[varname]
-
-        return super().from_shape(shape, hidden_act=hidden_act, out_act=out_act, *args, **kwargs)
+        return super().from_shape(
+            shape=shape,
+            hidden_act=hidden_act,
+            out_act=out_act,
+            loss=loss,
+            sigmas=sigmas,
+            dropout_ratio=dropout_ratio
+        )
     
     @classmethod
     def fit(
@@ -773,15 +780,20 @@ class mlp_regressor(mlp):
         value of loss function at each epoch in training, AIC and BIC and so 
         on. It also controls the whole process of early stopping. For more 
         details, see `logger`'s doc.
+    dropout : bool
+        Whether to use Dropout or not.
     """
     
     @classmethod
-    def from_shape(cls, shape, hidden_act='ReLU', *args, **kwargs):
-        for varname in ['act_funcs', 'out_act']:
-            if varname in kwargs:
-                del kwargs[varname]
-
-        return super().from_shape(shape, hidden_act=hidden_act, out_act='linear', *args, **kwargs)
+    def from_shape(cls, shape, hidden_act='ReLU', loss=None, sigmas=None, dropout_ratio=None) -> 'mlp_regressor':
+        return super().from_shape(
+            shape=shape,
+            hidden_act=hidden_act,
+            out_act='linear',
+            loss=loss,
+            sigmas=sigmas,
+            dropout_ratio=dropout_ratio
+        )
 
     @classmethod
     def fit(
@@ -804,11 +816,12 @@ class mlp_regressor(mlp):
 
             
 class minibatch_iter:
-    def __init__(self, X: np.ndarray, T: np.ndarray, batch_size: int, shuffle: bool=True):
+    def __init__(self, X: np.ndarray, T: np.ndarray, batch_size: int, shuffle: bool=True, check_twodim=False):
         if len(X) != len(T):
             raise ValueError("'X' and 'T' must have the same length.")
-        X = utils.check_twodim(X)
-        T = utils.check_twodim(T)
+        if check_twodim:
+            X = utils.check_twodim(X)
+            T = utils.check_twodim(T)
         self.n_sample = len(X)
         self.batch_size = batch_size
         if shuffle:
@@ -1254,7 +1267,7 @@ class logger:
         secax.set_xlabel('epochs')
         
         ax.set_xlim(left=0)
-        ax.set_ylim(bottom=0, top=None)
+        ax.set_ylim(0, 0.5)
         ax.grid(axis='y', linestyle='--')
 
         return fig, ax, secax
