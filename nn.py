@@ -8,6 +8,7 @@ import time
 import dataclasses
 from typing import Type, Sequence, List, Callable
 import warnings
+import pickle
 
 # from . 
 # from .
@@ -194,8 +195,6 @@ class dropout_layer(layer):
     ----------
     ratio : float
         The probability that each neuron is dropped out.
-    now_training : bool
-        Whether the network that this layer belongs to is currently being trained.
 
     References
     ----------
@@ -207,7 +206,7 @@ class dropout_layer(layer):
         if not (0.0 <= ratio < 1):
             raise ValueError("'ratio' must be 0 <= ratio < 1")
         self.ratio = ratio
-        self.now_training = False
+        self._now_training = False
 
     def __repr__(self):
         return f"<{self.__class__.__name__} of {self.size} neurons with {self.h.__class__.__name__} activation, dropout ratio={self.ratio}>"
@@ -232,7 +231,7 @@ class dropout_layer(layer):
 
     def fire(self, input:np.ndarray) -> np.ndarray:
         self.z = super().fire(input)
-        if self.now_training:
+        if self._now_training:
             self.make_mask()
             self.z *= self.mask
         else:
@@ -245,7 +244,7 @@ class dropout_layer(layer):
         return self.delta
 
     def set_input(self, x : np.ndarray) -> None:
-        if self.now_training:
+        if self._now_training:
             self.make_mask()
             self.z = x * self.mask
         else:
@@ -634,7 +633,14 @@ class mlp(base._estimator_base):
             
     def _set_training_flag(self, b: bool):
         for layer in self[:-1]:
-            layer.now_training = b
+            layer._now_training = b
+
+    # ____________pickle____________
+
+    def save(self, filename):
+        with open(filename, 'wb') as f:
+            pickle.dump(self, f)
+            
 
 
     
@@ -1332,9 +1338,11 @@ class logger:
         ax.set(xlabel="iterations", ylabel="loss")
         secax = ax.secondary_xaxis(
             'top',
-            functions=(lambda count: count/self._iter_per_epoch,
-                       lambda epoch: epoch*self._iter_per_epoch)
+            functions=(self._iter_to_epoch, self._epoch_to_iter)
         )
+            # functions=(lambda count: count/self._iter_per_epoch,
+            #            lambda epoch: epoch*self._iter_per_epoch)
+        # )
         
         secax.xaxis.set_major_locator(ticker.AutoLocator())
         secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
@@ -1474,14 +1482,19 @@ class logger:
             ax.plot(self.count, self.val_loss, color=color2, *args, **kwargs)
         return fig, ax, secax
 
-    def to_file(self, fname) -> None:
-        with open(fname, "w") as f:
-            f.write(repr(self))
-            
-    @classmethod
-    def from_file(cls, fname):
-        with open(fname) as f:
-            return eval(f.read())
+    def _iter_to_epoch(self, iterations):
+        return iterations/self._iter_per_epoch
+
+    def _epoch_to_iter(self, epochs):
+        return epochs*self._iter_per_epoch
+
+    # __________pickle__________
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop('fig', None)
+        state.pop('ax', None)
+        state.pop('secax', None)
+        return state
 
 
 def numerical_gradient(func, x, dx=1e-7):
