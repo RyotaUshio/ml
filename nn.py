@@ -495,7 +495,7 @@ class mlp(base._estimator_base):
     def predict_label(self, x, label_dict:dict=None):
         labels = utils.prob2label( self(x) )
         if label_dict:
-            np.array([label_dict[label] for label in labels])
+            return np.array([label_dict[label] for label in labels], dtype=object)
         return labels
 
     def predict_one_of_K(self, x):
