@@ -1046,7 +1046,9 @@ OPTIMIZERS = {
 
 @dataclasses.dataclass
 class act_func:
-    """各層の活性化関数"""
+    """An activation function class.
+    """
+    
     param : float            = dataclasses.field(default=1.0)
     # 出力層の活性化関数として用いた場合の対応する損失関数クラス
     loss : Type["loss_func"] = dataclasses.field(init=False, default=None, repr=False)
@@ -1058,7 +1060,7 @@ class act_func:
         raise NotImplementedError
 
     def val2deriv(self, z):
-        """活性化関数の関数値z = h(u)の関数として導関数h\'(u)の値を計算する."""
+        """活性化関数の関数値z = h(u)の関数として導関数h'(u)の値を計算する."""
         raise NotImplementedError
 
     def copy(self):
@@ -1080,7 +1082,8 @@ class act_func:
 
 @dataclasses.dataclass
 class linear(act_func):
-    """線形関数"""
+    """Linear (identity) function.
+    """
     def __post_init__(self):
         self.loss = mean_square
 
@@ -1093,7 +1096,8 @@ class linear(act_func):
 
 @dataclasses.dataclass
 class step(act_func):
-    """ヘヴィサイドのステップ関数"""
+    """Heaviside's step function.
+    """
     def __post_init__(self):
         # sigmoid(a*u)でa -> +inf とした極限だと思えば、交差エントロピーでいいのでは??
         self.loss = cross_entropy
@@ -1107,10 +1111,8 @@ class step(act_func):
 
 @dataclasses.dataclass
 class sigmoid(act_func):
-    # val2deriv計算時の桁落ち防止に使うつもりだったが、必要ないかも
-    eps: float = dataclasses.field(default=1e-4)
-    
-    """シグモイド関数"""
+    """Logistic sigmoid function.
+    """
     def __post_init__(self):
         self.loss = cross_entropy
         
@@ -1118,12 +1120,13 @@ class sigmoid(act_func):
         return 0.5 * (1.0 + np.tanh(0.5 * self.param * u))
     
     def val2deriv(self, z):
-        return self.param * z * (1.0 - z) # np.maximum(z, self.eps) * (1.0 - np.minimum(z, 1-self.eps))
+        return self.param * z * (1.0 - z)
 
 
 @dataclasses.dataclass
 class tanh(act_func):
-    """tanh関数"""        
+    """Hyperbolic tangent function.
+    """
     def __call__(self, u):
         return np.tanh(self.param * u)
     
@@ -1134,7 +1137,8 @@ class tanh(act_func):
     
 @dataclasses.dataclass
 class ReLU(act_func):
-    """ReLU"""
+    """ReLU: Rectified Linear Unit.
+    """
     def __call__(self, u):
         return np.maximum(self.param * u, 0.0)
     
@@ -1144,7 +1148,8 @@ class ReLU(act_func):
 
 @dataclasses.dataclass
 class LeakyReLU(act_func):
-    """Leaky ReLU"""
+    """Leaky ReLU activation.
+    """
     alpha:float = dataclasses.field(default=0.01)
         
     def __call__(self, u):
@@ -1156,7 +1161,8 @@ class LeakyReLU(act_func):
 
 @dataclasses.dataclass
 class softmax(act_func):
-    """ソフトマックス関数"""
+    """Softmax function.
+    """
     def __post_init__(self):
         self.loss = mul_cross_entropy
         
@@ -1187,6 +1193,9 @@ ACTIVATIONS = {
     
 @dataclasses.dataclass
 class loss_func:
+    """Loss function of a neural network.
+    """
+    
     net: mlp = dataclasses.field(init=False, default=None, repr=False)
     
     """損失関数"""    
@@ -1218,6 +1227,8 @@ class loss_func:
 
 
 class mean_square(loss_func):
+    """Mean-Square Error.
+    """
     def __call__(self, x, t):
         if x is not None:
             self.net.forward_prop(x)
@@ -1227,6 +1238,8 @@ class mean_square(loss_func):
 
     
 class cross_entropy(loss_func):
+    """Cross entropy error for binary classification.
+    """
     def __call__(self, x, t):
         if x is not None:
             self.net.forward_prop(x)
@@ -1237,6 +1250,8 @@ class cross_entropy(loss_func):
 
     
 class mul_cross_entropy(cross_entropy):
+    """Cross entropy error for multiclass classification.
+    """
     def __call__(self, x, t):
         if x is not None:
             self.net.forward_prop(x)
@@ -1261,7 +1276,9 @@ class NoImprovement(Exception):
 
 @dataclasses.dataclass
 class logger:
-    """学習経過の記録と損失のグラフの描画, および早期終了の制御"""
+    """学習経過の記録と損失のグラフの描画, および早期終了の制御
+    """
+    
     net : mlp                  = dataclasses.field(default=None, repr=False)
     iterations : int           = dataclasses.field(default=0)
     loss: Sequence[float]      = dataclasses.field(default_factory=list)
