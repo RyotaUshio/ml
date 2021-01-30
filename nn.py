@@ -221,18 +221,19 @@ class dropout_layer(layer):
         else:
             return cls(W=layer.W, b=layer.b, h=layer.h, ratio=ratio)
 
-    def make_mask(self, n_input):
+    def make_mask(self):
         # ひとつのミニバッチに対しては同じニューロンをdropoutする、と考えるとこうなるが
         # mask = (np.random.rand(1, self.size) >= self.ratio)
         # self.mask = np.repeat(mask, n_input, axis=0)
         # なんで全部バラバラにしたこっちのほうが性能高い??
-        self.mask = (np.random.rand(n_input, self.size) >= self.ratio)
+        # self.mask = (np.random.rand(n_input, self.size) >= self.ratio)
+        # いやこれでいい
+        self.mask = np.random.rand(self.size) >= self.ratio
 
     def fire(self, input:np.ndarray) -> np.ndarray:
         self.z = super().fire(input)
         if self.now_training:
-            n_input = self.z.shape[0]
-            self.make_mask(n_input)
+            self.make_mask()
             self.z *= self.mask
         else:
             self.z *= 1 - self.ratio
@@ -245,7 +246,7 @@ class dropout_layer(layer):
 
     def set_input(self, x : np.ndarray) -> None:
         if self.now_training:
-            self.make_mask(x.shape[0])
+            self.make_mask()
             self.z = x * self.mask
         else:
             self.z = x * (1 - self.ratio)
@@ -273,7 +274,7 @@ class mlp(base._estimator_base):
 
     Parameters
     ----------
-    layers : Sequence[layer]
+    layers : Sequence layer
         A sequence of layer objects contained in the network.
     loss : loss_func, default=None
         The loss function which will be used in network training process with 
@@ -284,7 +285,7 @@ class mlp(base._estimator_base):
 
     Attributes
     ----------
-    layers : Sequence[layer]
+    layers : Sequence layer
         A sequence of `layer` objects contained in the network.
     loss : loss_func
         The loss function which will be used in network training process with 
@@ -686,7 +687,7 @@ class mlp_classifier(mlp):
     (This class is supposed to be constructed via `from_shape()`, not 
     by calling `__init__()` directly.)
     
-    layers : Sequence[layer]
+    layers : Sequence layer
         A sequence of layer objects contained in the network.
     loss : loss_func, default=None
         The loss function which will be used in network training process with 
@@ -697,7 +698,7 @@ class mlp_classifier(mlp):
 
     Attributes
     ----------
-    layers : Sequence[layer]
+    layers : Sequence layer
         A sequence of `layer` objects contained in the network.
     loss : loss_func
         The loss function which will be used in network training process with 
@@ -826,7 +827,7 @@ class mlp_regressor(mlp):
     (This class is supposed to be constructed via `from_shape()`, not 
     by calling `__init__()` directly.)
     
-    layers : Sequence[layer]
+    layers : Sequence layer
         A sequence of layer objects contained in the network.
     loss : loss_func, default=None
         The loss function which will be used in network training process with 
@@ -837,7 +838,7 @@ class mlp_regressor(mlp):
 
     Attributes
     ----------
-    layers : Sequence[layer]
+    layers : Sequence of layer
         A sequence of `layer` objects contained in the network.
     loss : loss_func
         The loss function which will be used in network training process with 
