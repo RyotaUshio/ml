@@ -136,5 +136,7 @@ def save(obj, filename):
 
 
 def load(filename):
+    if not filename.endswith('.pkl'):
+        filename += '.pkl'
     with open(filename, 'rb') as f:
         return pickle.load(f)
