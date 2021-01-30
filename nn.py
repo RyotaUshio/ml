@@ -556,16 +556,17 @@ class mlp(base._estimator_base):
         -------
         None
         """
+        # パラメータ更新器
+        optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta0, lamb=lamb)
         # 途中経過の記録
         self.log = logger(
             net=self,
             n_sample=len(X_train),
             batch_size=batch_size,
             X_train=X_train, T_train=T_train,
+            optimizer=optimizer,
             *args, **kwargs
         )
-        # パラメータ更新器
-        optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta0, lamb=lamb)
         if self.dropout:
             self._set_training_flag(True)
         
@@ -1310,6 +1311,7 @@ class logger:
     accuracy: float            = dataclasses.field(default=None)
     val_accuracy: float        = dataclasses.field(default_factory=list)
     time: float                = dataclasses.field(default=None)
+    optimizer: _optimizer_base = dataclasses.field(default=None)
 
     def __post_init__(self):
         # 検証用データ(X_val, T_val)に対する誤差も計算するかどうか
