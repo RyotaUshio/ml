@@ -1,4 +1,4 @@
-"""Multi-layer Perceptron.
+"""Multi-layer Perceptron. test
 """
 
 import numpy as np
