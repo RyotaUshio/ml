@@ -273,7 +273,7 @@ class mlp(base._estimator_base):
 
     Parameters
     ----------
-    layers : Sequence layer
+    layers : Sequence of layer
         A sequence of layer objects contained in the network.
     loss : loss_func, default=None
         The loss function which will be used in network training process with 
@@ -284,7 +284,7 @@ class mlp(base._estimator_base):
 
     Attributes
     ----------
-    layers : Sequence layer
+    layers : Sequence of layer
         A sequence of `layer` objects contained in the network.
     loss : loss_func
         The loss function which will be used in network training process with 
@@ -638,6 +638,8 @@ class mlp(base._estimator_base):
     # ____________pickle____________
 
     def save(self, filename):
+        if not filename.endswith('.pkl'):
+            filename += '.pkl'
         with open(filename, 'wb') as f:
             pickle.dump(self, f)
             
@@ -693,7 +695,7 @@ class mlp_classifier(mlp):
     (This class is supposed to be constructed via `from_shape()`, not 
     by calling `__init__()` directly.)
     
-    layers : Sequence layer
+    layers : Sequence of layer
         A sequence of layer objects contained in the network.
     loss : loss_func, default=None
         The loss function which will be used in network training process with 
@@ -704,7 +706,7 @@ class mlp_classifier(mlp):
 
     Attributes
     ----------
-    layers : Sequence layer
+    layers : Sequence of layer
         A sequence of `layer` objects contained in the network.
     loss : loss_func
         The loss function which will be used in network training process with 
@@ -833,7 +835,7 @@ class mlp_regressor(mlp):
     (This class is supposed to be constructed via `from_shape()`, not 
     by calling `__init__()` directly.)
     
-    layers : Sequence layer
+    layers : Sequence of layer
         A sequence of layer objects contained in the network.
     loss : loss_func, default=None
         The loss function which will be used in network training process with 
