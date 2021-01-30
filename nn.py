@@ -108,31 +108,41 @@ class layer:
         return f"<{self.__class__.__name__} of {self.size} neurons with {self.h.__class__.__name__} activation>"
     
     def is_first(self) -> bool:
+        """Whether `self` is an input layer of a network or not.
+        """
         return (self.prev is None) and (self.next is not None)
     
     def is_last(self) -> bool:
+        """Whether `self` is an output layer of a network or not.
+        """
         return (self.prev is not None) and (self.next is None)
 
     def is_hidden(self) -> bool:
+        """Whether `self` is a hidden layer of a network or not.
+        """
         return (self.prev is not None) and (self.next is not None)
 
     def is_unconnected(self) -> bool:
         return (self.prev is None) and (self.next is None)
 
     def is_connected(self) -> bool:
+        """Whether `self` is connected to other layers or not.
+        """
         return not self.is_unconnected()
 
-    def fire(self, input:np.ndarray) -> np.ndarray:
+    def fire(self, input : np.ndarray) -> np.ndarray:
         """
-        inputを入力として層内のニューロンを発火させる.
+        Make the neurons in the layer activate.
         
-        Parameter
-        ---------
-        input: 層内の各ニューロンへの入力信号を横に並べたベクトル
+        Parameters
+        ----------
+        input : np.ndarray of shape (n_sample, n_neuron of previous layer)
+           The input signal that flows into the layer.
 
-        Return
-        ------
-        inputを入力として活性self.uと出力self.zを更新したのち、self.zへの参照を返す
+        Returns
+        -------
+        np.ndarray of shape (n_sample, n_neuron of this layer)
+            The output signal that flows out of the layer.
         """
         self.u = input @ self.W + self.b
         self.z = self.h( self.u )
@@ -176,7 +186,16 @@ class layer:
         
         
 class dropout_layer(layer):
-    """Dropout layer
+    """Dropout layer.
+
+    Dropout is an effective method to avoid overfitting.
+
+    Attributes
+    ----------
+    ratio : float
+        The probability that each neuron is dropped out.
+    now_training : bool
+        Whether the network that this layer belongs to is currently being trained.
 
     References
     ----------
@@ -195,6 +214,8 @@ class dropout_layer(layer):
     
     @classmethod
     def from_layer(cls, layer, ratio=0.5, first=False):
+        """Convert a `layer` into a `dropout_layer`.
+        """
         if first:
             return cls(size=layer.size, first=first, ratio=ratio)
         else:
@@ -232,13 +253,15 @@ class dropout_layer(layer):
 
     
 class conv_layer(layer):
-    """畳み込み層"""
+    """A convolutional layer class.
+    """
     def __init__(self, *args, **kwargs):
         raise NotImplementedError
 
     
 class pool_layer(layer):
-    """プーリング(サブサンプリング)層"""
+    """A pooling layer class.
+    """
     def __init__(self, *args, **kwargs):
         raise NotImplementedError
 
@@ -292,12 +315,41 @@ class mlp(base._estimator_base):
             sigmas=None,
             dropout_ratio: Sequence[float] =None
     ) -> 'mlp':
-        """
-        各層のニューロン数を表す配列と活性化関数を表す配列からlayerオブジェクトとmplオブジェクトを生成する。
+        """Create a new `mlp` object with specified shape & activation functions.
+
         Parameters
         ----------
-        shape: list
-             ネットワークの各層内にいくつのニューロンを生成するか
+        shape : Sequence of int
+            The number of neurons contained in each layer (i.e. (n_neuron of the 
+            1st layer, n_neuron of the 2nd layer, ..., n_neuron of the last layer)).
+        act_funcs : Sequence of str or act_func
+            The activation functions of each layer. 
+            ex) For a MLP with 2 hidden layers: [None, 'ReLU', 'sigmoid', 'softmax']
+        hidden_act, out_act : str or act_func, optional
+            The activation functions can be specified with these parameters, 
+            instead of `act_funcs`.
+        loss : str or loss_func, optional
+            The loss function used in network training with back-propagation. If 
+            not given, it will be set according to the last layer's activation function.
+        sigmas : Sequence of float or float, optional
+            Stddev of Gaussian distribution from which weights in each layer are 
+            sampled. If not given, they are set in accordance with the methods 
+            proposed by Xavier[1]_ & He[2]_.
+        dropout_ratio : Sequence of float or float, optional
+            If given, the input & hidden layers are converted into `dropout_layer` 
+            according to specified dropout ratios.
+
+        Returns
+        -------
+        A new `mlp` object.
+        
+        References
+        ----------
+        .. [1] Xavier Glorot, Yoshua Bengio. "Understanding the difficulty of 
+           training deep feedforward neural networks." AISTATS 2010.
+        .. [2] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun. "Delving Deep
+           into Rectifiers: Surpassing Human-Level Performance on ImageNet 
+           Classification." arXiv:1502.01852. 2015.
         """
         n_layer = len(shape)
 
@@ -355,8 +407,9 @@ class mlp(base._estimator_base):
 
     @classmethod
     def from_params(cls, weights:Sequence, biases:Sequence, act_funcs:Sequence[str], loss=None, include_first=False):
-        """Make a mlp object by specifying paramters(=weight matrices and bias vectors) and 
-        activation functions of each layer."""
+        """Make a mlp object by specifying paramters (= weight matrices and bias
+        vectors) and activation functions of each layer.
+        """
         if not (len(weights) == len(biases) == len(act_funcs)):
             raise ValueError("'weights', 'biases', and 'act_funcs' must have the same length.")
 
@@ -440,8 +493,11 @@ class mlp(base._estimator_base):
         self.forward_prop(x)
         return self[-1].z.copy()
 
-    def predict_label(self, x):
-        return utils.prob2label( self(x) )
+    def predict_label(self, x, label_dict:dict=None):
+        labels = utils.prob2label( self(x) )
+        if label_dict:
+            np.array([label_dict[label] for label in labels])
+        return labels
 
     def predict_one_of_K(self, x):
         return utils.prob2one_of_K( self(x) )
@@ -480,18 +536,26 @@ class mlp(base._estimator_base):
 
         Parameters
         ----------
-        X : array of shape (n_sample, n_feature)
+        X_train : np.ndarray of shape (n_sample, n_feature)
             訓練データセットの入力群.
-        T : array of shape (n_sample, n_target)
+        T_train : np.ndarray of shape (n_sample, n_target)
             訓練データセットの出力群.
-        eta: float
+        eta0: float, default=0.05
             学習係数(の初期値)を表すパラメータ.
-        optimizer: {'SGD', 'AdaGrad', 'Momentum'(, 'Adam', 'LBFGS')}
+        optimizer: {'SGD', 'AdaGrad', 'Momentum'(, 'Adam', 'LBFGS')}, default='AdaGrad'
             学習に用いる最適化手法.
-        max_epoch:
+        max_epoch : int, default=100
             最大反復エポック数.
-        batch_size: ミニバッチ学習に用いるミニバッチのサイズ. 
-        log_cond: カウンタ変数m, iがどんな条件を満たしたときに損失関数の値などをlogに記録するか
+        batch_size : int, default=200
+            ミニバッチ学習に用いるミニバッチのサイズ. 
+        lamb : float, default=0.0001
+            Coeffiecient of weight decay.
+        *args, **kwargs
+            Other arguments passed to the constructor of `logger`.
+
+        Returns
+        -------
+        None
         """
         # 途中経過の記録
         self.log = logger(
@@ -525,35 +589,6 @@ class mlp(base._estimator_base):
         if self.dropout:
             self._set_training_flag(False)
     
-    def test(self, X:np.ndarray, T:np.ndarray, log:bool=True, verbose=False) -> float:
-        """テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を計算する.
-        selfは分類器と仮定する. 
-
-        将来のアップデートでevaluatorクラスに移動するかも。
-        """
-        # 多クラス分類問題
-        if self[-1].size > 1:
-            predicted = self.predict_label(X)
-            true      = utils.vec2label(T)
-        # 2クラス分類問題
-        else:
-            predicted = np.where(self(X) > 0.5, 1, 0)
-            true      = T
-        
-        n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
-        n_sample = len(X)                                  # 全サンプル数
-        accuracy = n_correct / n_sample                    # 正解率
-        if log:
-            if self.log is not None:
-                self.log.accuracy = accuracy
-            else:
-                warnings.warn("Can't write log because self.log is None.")
-
-        if verbose:
-            print(f"Accuracy: {accuracy * 100:.4f} %")
-                
-        return accuracy
-
     @classmethod
     def fit(
             cls,
@@ -705,7 +740,12 @@ class mlp_classifier(mlp):
             self.classification_type = 'binary'
 
     @classmethod
-    def from_shape(cls, shape, hidden_act='ReLU', loss=None, sigmas=None, dropout_ratio=None) -> 'mlp_classifier':
+    def from_shape(cls,
+                   shape,
+                   hidden_act='ReLU',
+                   loss=None,
+                   sigmas=None,
+                   dropout_ratio=None) -> 'mlp_classifier':
         out_act = cls._get_out_act_name(shape[-1])
         return super().from_shape(
             shape=shape,
@@ -717,8 +757,7 @@ class mlp_classifier(mlp):
         )
     
     @classmethod
-    def fit(
-            cls,
+    def fit(cls,
             X_train:np.ndarray,
             T_train:np.ndarray,
             hidden_shape: Sequence[int],
@@ -726,8 +765,7 @@ class mlp_classifier(mlp):
             loss=None,
             sigmas=None,
             dropout: Sequence[float] =None,
-            *args, **kwargs
-    ):
+            *args, **kwargs):
         return super().fit(
             X_train=X_train, T_train=T_train, hidden_shape=hidden_shape,
             hidden_act=hidden_act,
@@ -744,6 +782,38 @@ class mlp_classifier(mlp):
         else:
             raise ValueError(f"'n_output' must be a positive integer, not {n_output}.")
         return out_act
+
+    def test(self,
+             X_test : np.ndarray,
+             T_test : np.ndarray,
+             log:bool=True,
+             verbose=False) -> float:
+        """Test the classifier and return the value of accuracy.
+
+        将来のアップデートでevaluatorクラスに移動するかも。
+        """
+        # 多クラス分類問題
+        if self[-1].size > 1:
+            predicted = self.predict_label(X_test)
+            true      = utils.vec2label(T_test)
+        # 2クラス分類問題
+        else:
+            predicted = np.where(self(X_test) > 0.5, 1, 0)
+            true      = T_test
+        
+        n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
+        n_sample = len(X_test)                             # 全サンプル数
+        accuracy = n_correct / n_sample                    # 正解率
+        
+        if log:
+            if self.log is not None:
+                self.log.accuracy = accuracy
+            else:
+                warnings.warn("Can't write log because self.log is None.")
+        if verbose:
+            print(f"Accuracy: {accuracy * 100:.4f} %")
+                
+        return accuracy
 
 
 
@@ -785,7 +855,12 @@ class mlp_regressor(mlp):
     """
     
     @classmethod
-    def from_shape(cls, shape, hidden_act='ReLU', loss=None, sigmas=None, dropout_ratio=None) -> 'mlp_regressor':
+    def from_shape(cls,
+                   shape,
+                   hidden_act='ReLU',
+                   loss=None,
+                   sigmas=None,
+                   dropout_ratio=None) -> 'mlp_regressor':
         return super().from_shape(
             shape=shape,
             hidden_act=hidden_act,
@@ -796,8 +871,7 @@ class mlp_regressor(mlp):
         )
 
     @classmethod
-    def fit(
-            cls,
+    def fit(cls,
             X_train:np.ndarray,
             T_train:np.ndarray,
             hidden_shape: Sequence[int],
@@ -805,8 +879,7 @@ class mlp_regressor(mlp):
             loss=None,
             sigmas=None,
             dropout: Sequence[float] =None,
-            *args, **kwargs
-    ):
+            *args, **kwargs):
         return super().fit(
             X_train=X_train, T_train=T_train, hidden_shape=hidden_shape,
             hidden_act=hidden_act,
@@ -1202,9 +1275,9 @@ class logger:
     how: str                   = dataclasses.field(default='plot', repr=False)
     delta_epoch : int          = dataclasses.field(default=20, repr=False)
     early_stopping: bool       = dataclasses.field(default=True)
-    patience_epoch: int        = dataclasses.field(default=8)
+    patience_epoch: int        = dataclasses.field(default=10)
     _no_improvement_iter: int  = dataclasses.field(init=False, default=0, repr=False)
-    tol: float                 = dataclasses.field(default=1e-4)
+    tol: float                 = dataclasses.field(default=1e-5)
     best_params: dict          = dataclasses.field(init=False, default=None, repr=False)
     best_params_val: dict      = dataclasses.field(init=False, default=None, repr=False)
     stop_params: dict          = dataclasses.field(init=False, default=None, repr=False)
@@ -1267,7 +1340,7 @@ class logger:
         secax.set_xlabel('epochs')
         
         ax.set_xlim(left=0)
-        ax.set_ylim(0, 0.5)
+        ax.set_ylim(0, 1)
         ax.grid(axis='y', linestyle='--')
 
         return fig, ax, secax
