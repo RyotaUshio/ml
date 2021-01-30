@@ -133,7 +133,7 @@ class layer:
 
     def fire(self, input : np.ndarray) -> np.ndarray:
         """
-        Make the neurons in the layer activate.
+        Make the neurons in the layer activated.
         
         Parameters
         ----------
