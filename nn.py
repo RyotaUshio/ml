@@ -170,13 +170,73 @@ class layer:
         self.dJdW = (self.prev.z.T @ self.delta) / batch_size
         self.dJdb = np.mean(self.delta, axis=0, keepdims=True)
 
+    def set_input(self, x : np.ndarray) -> None:
+        self.z = x
         
+        
+        
+class dropout_layer(layer):
+    """Dropout layer
 
+    References
+    ----------
+    https://github.com/chainer/chainer/blob/eddf10e4af3756dbf32149d0b6ad91cebcf529c1/chainer/functions/noise/dropout.py
+    """
+    
+    def __init__(self, W=None, b=None, h=None, size=None, first=False, ratio=0.5):
+        super().__init__(W=W, b=b, h=h, size=size, first=first)
+        if not (0.0 <= ratio < 1):
+            raise ValueError("'ratio' must be 0 <= ratio < 1")
+        self.ratio = ratio
+        self.now_training = False
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__} of {self.size} neurons with {self.h.__class__.__name__} activation, dropout ratio={self.ratio}>"
+    
+    @classmethod
+    def from_layer(cls, layer, ratio=0.5, first=False):
+        if first:
+            return cls(size=layer.size, first=first, ratio=ratio)
+        else:
+            return cls(W=layer.W, b=layer.b, h=layer.h, ratio=ratio)
+
+    def make_mask(self, n_input):
+        # ひとつのミニバッチに対しては同じニューロンをdropoutする、と考えるとこうなるが
+        # mask = (np.random.rand(1, self.size) >= self.ratio)
+        # self.mask = np.repeat(mask, n_input, axis=0)
+        # なんで全部バラバラにしたこっちのほうが性能高い??
+        self.mask = (np.random.rand(n_input, self.size) >= self.ratio)
+
+    def fire(self, input:np.ndarray) -> np.ndarray:
+        self.z = super().fire(input)
+        if self.now_training:
+            n_input = self.z.shape[0]
+            self.make_mask(n_input)
+            self.z *= self.mask
+        else:
+            self.z *= 1 - self.ratio
+        return self.z
+
+    def calc_delta(self, next_delta) -> np.ndarray:
+        self.delta = super().calc_delta(next_delta)
+        self.delta *= self.mask
+        return self.delta
+
+    def set_input(self, x : np.ndarray) -> None:
+        if self.now_training:
+            self.make_mask(x.shape[0])
+            self.z = x * self.mask
+        else:
+            self.z = x * (1 - self.ratio)
+
+
+    
 class conv_layer(layer):
     """畳み込み層"""
     def __init__(self, *args, **kwargs):
         raise NotImplementedError
 
+    
 class pool_layer(layer):
     """プーリング(サブサンプリング)層"""
     def __init__(self, *args, **kwargs):
@@ -220,10 +280,6 @@ class mlp(base._estimator_base):
     loss: 'loss_func' = dataclasses.field(default=None)
     log: 'logger' = dataclasses.field(init=False, default=None, repr=False)
     dropout : bool = dataclasses.field(init=False, default=False, repr=False)
-
-    @classmethod
-    def _dropout_type(cls):
-        return dropout_mlp
 
     @classmethod
     def from_shape(
@@ -276,7 +332,6 @@ class mlp(base._estimator_base):
         if dropout_ratio:
             net.set_dropout(dropout_ratio)
             net.dropout = True
-            # net = cls._dropout_type().from_mlp(net, dropout)
         return net
 
     @staticmethod
@@ -391,14 +446,7 @@ class mlp(base._estimator_base):
 
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
-        if self.dropout:
-            if self[0].now_training:
-                self[0].make_mask(x.shape[0])
-                self[0].z = x * self[0].mask
-            else:
-                self[0].z = x * (1 - self[0].ratio)
-        else:
-            self[0].z = x
+        self[0].set_input(x)
         return self[-1].prop_z()
             
     def back_prop(self, t:np.ndarray) -> None:
@@ -546,103 +594,12 @@ class mlp(base._estimator_base):
             self.layers[l] = dropout_layer.from_layer(self[l], ratio=ratio[l])
         self._connect_layers()
             
-    # def _make_mask(self, n_input):
-    #     for layer in self[:-1]:
-    #         layer.make_mask(n_input)
-
     def _set_training_flag(self, b: bool):
         for layer in self[:-1]:
             layer.now_training = b
 
-    
-
-
-
-
-class dropout_layer(layer):
-    """Dropout layer
-
-    References
-    ----------
-    https://github.com/chainer/chainer/blob/eddf10e4af3756dbf32149d0b6ad91cebcf529c1/chainer/functions/noise/dropout.py
-    """
-    
-    def __init__(self, W=None, b=None, h=None, size=None, first=False, ratio=0.5):
-        super().__init__(W=W, b=b, h=h, size=size, first=first)
-        if not (0.0 <= ratio < 1):
-            raise ValueError("'ratio' must be 0 <= ratio < 1")
-        self.ratio = ratio
-        self.now_training = False
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__} of {self.size} neurons with {self.h.__class__.__name__} activation, dropout ratio={self.ratio}>"
-    
-    @classmethod
-    def from_layer(cls, layer, ratio=0.5, first=False):
-        if first:
-            return cls(size=layer.size, first=first, ratio=ratio)
-        else:
-            return cls(W=layer.W, b=layer.b, h=layer.h, ratio=ratio)
-
-    def make_mask(self, n_input):
-        mask = (np.random.rand(1, self.size) >= self.ratio)
-        self.mask = np.vstack([mask for _ in range(n_input)])
-
-    def fire(self, input:np.ndarray) -> np.ndarray:
-        self.z = super().fire(input)
-        if self.now_training:
-            n_input = self.z.shape[0]
-            self.make_mask(n_input)
-            self.z *= self.mask
-        else:
-            self.z *= 1 - self.ratio
-        return self.z
-
-    def calc_delta(self, next_delta) -> np.ndarray:
-        self.delta = super().calc_delta(next_delta)
-        # if self.now_training:
-        self.delta *= self.mask
-        return self.delta
 
     
-        
-# @dataclasses.dataclass
-# class dropout_mlp(mlp):
-#     ratio: float = dataclasses.field(default=0.5, repr=False)
-
-#     @classmethod
-#     def from_mlp(cls, net, ratio=0.5):
-#         # make sure ratio is a list
-#         if not hasattr(ratio, '__iter__'):
-#             ratio = [ratio for _ in range(len(net)-1)]
-#         cp = net.copy()
-#         layers = [dropout_layer.from_layer(cp[0], first=True, ratio=ratio[0])]
-#         for l in range(1, len(cp)-1):
-#             layers.append(dropout_layer.from_layer(cp[l], ratio=ratio[l]))
-#         layers.append(cp[-1])
-#         return cls(layers, loss=cp.loss, ratio=ratio)
-
-#     def make_mask(self, n_input):
-#         for layer in self[:-1]:
-#             layer.make_mask(n_input)
-    
-#     def forward_prop(self, x:np.ndarray) -> None:
-#         if self[0].now_training:
-#             self.make_mask(x.shape[0])
-#             super().forward_prop(x * self[0].mask)
-#         else:
-#             super().forward_prop(x)
-        
-#     def train(self, *args, **kwargs):
-#         self.set_training_flag(True)
-#         super().train(*args, **kwargs)
-#         self.set_training_flag(False)
-
-#     def set_training_flag(self, b: bool):
-#         for layer in self[:-1]:
-#             layer.now_training = b
-        
-            
 @dataclasses.dataclass
 class ensemble_mlp(base._estimator_base):
     nets: Sequence[mlp]
@@ -735,10 +692,6 @@ class mlp_classifier(mlp):
     
     classification_type: str = dataclasses.field(init=False)
 
-    @classmethod
-    def _dropout_type(cls):
-        return dropout_mlp_classifier
-
     def __post_init__(self):
         super().__post_init__()
         n_output = self.shape[-1]
@@ -787,13 +740,6 @@ class mlp_classifier(mlp):
 
 
 
-
-# @dataclasses.dataclass
-# class dropout_mlp_classifier(dropout_mlp):
-#     pass
-
-
-
 @dataclasses.dataclass
 class mlp_regressor(mlp):
     """Regression with MLP: multi-layer perceptron.
@@ -830,10 +776,6 @@ class mlp_regressor(mlp):
     """
     
     @classmethod
-    def _dropout_type(cls):
-        return dropout_mlp_regressor
-
-    @classmethod
     def from_shape(cls, shape, hidden_act='ReLU', *args, **kwargs):
         for varname in ['act_funcs', 'out_act']:
             if varname in kwargs:
@@ -859,12 +801,6 @@ class mlp_regressor(mlp):
             loss=loss, sigmas=sigmas, dropout=dropout, *args, **kwargs
         )
 
-
-    
-# @dataclasses.dataclass
-# class dropout_mlp_regressor(dropout_mlp):
-#     pass
-    
 
             
 class minibatch_iter:
@@ -1340,7 +1276,6 @@ class logger:
             )
             # 検証用データ(X_val, T_val)に対する損失を計算する
             if self._compute_val_loss:
-                # dropout = isinstance(self.net, dropout_mlp)
                 if self.net.dropout:
                     # dropoutによる訓練中の場合は、検証用データに対する損失は一時的にdropoutをoffにする
                     self.net._set_training_flag(False)
