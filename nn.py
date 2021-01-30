@@ -277,11 +277,10 @@ class mlp(base._estimator_base):
         A sequence of layer objects contained in the network.
     loss : loss_func, default=None
         The loss function which will be used in network training process with 
-        back propagation. If not given, it will be set automatically according 
-        to the type of the activation function of the last layer (i.e. when 
-        the last layer has logistic sigmoid activation, then the loss will be 
-        set to cross entropy error).
-
+        back propagation. If not given, the one is chosen that corresponds to
+        the last layer's activation function in the sense of maximum likeli-
+        -hood estimation.
+    
     Attributes
     ----------
     layers : Sequence of layer
