@@ -210,8 +210,8 @@ class mlp(base._estimator_base):
         The number of neurons contained in each layer of the network, that is,
         a tuple of (n_unit_1st_layer, n_unit_2nd_layer, ..., n_unit_last_layer).
     log : logger
-        An `logger` object, which records various information, including the 
-        value of loss function at each epoch in training, AIC and BIC and so 
+        A `logger` object, which records various information, including values 
+        of loss function at each epoch in training, AIC and BIC and so 
         on. It also controls the whole process of early stopping. For more 
         details, see `logger`'s doc.
     """
@@ -219,6 +219,7 @@ class mlp(base._estimator_base):
     layers: Sequence[layer]
     loss: 'loss_func' = dataclasses.field(default=None)
     log: 'logger' = dataclasses.field(init=False, default=None, repr=False)
+    dropout : bool = dataclasses.field(init=False, default=False, repr=False)
 
     @classmethod
     def _dropout_type(cls):
@@ -231,7 +232,7 @@ class mlp(base._estimator_base):
             hidden_act=None, out_act=None,
             loss=None,
             sigmas=None,
-            dropout: Sequence[float] =None
+            dropout_ratio: Sequence[float] =None
     ) -> 'mlp':
         """
         各層のニューロン数を表す配列と活性化関数を表す配列からlayerオブジェクトとmplオブジェクトを生成する。
@@ -272,8 +273,10 @@ class mlp(base._estimator_base):
             )
 
         net = cls(layers, loss=LOSSES[loss]())
-        if dropout:
-            net = cls._dropout_type().from_mlp(net, dropout)
+        if dropout_ratio:
+            net.set_dropout(dropout_ratio)
+            net.dropout = True
+            # net = cls._dropout_type().from_mlp(net, dropout)
         return net
 
     @staticmethod
@@ -292,8 +295,6 @@ class mlp(base._estimator_base):
             raise ValueError("Incompatible length: 'shape' & 'hidden_act'")
     
         return [None] + hidden_act + [out_act]
-
-
 
     @classmethod
     def from_params(cls, weights:Sequence, biases:Sequence, act_funcs:Sequence[str], loss=None, include_first=False):
@@ -344,13 +345,16 @@ class mlp(base._estimator_base):
         self.shape = tuple(l.size for l in self)
 
         ## 層間の連結リストとしての構造を構築する ##
+        self._connect_layers()
+
+        ## 入力層の不要なメンバ変数はNoneにする ##
+        self[0].W = self[0].b = self[0].u = self[0].delta = self[0].h = self[0].dJdW = self[0].dJdb = None
+
+    def _connect_layers(self):
         for l in range(1, len(self)):
             # 0層目と1層目, 1層目と2層目, ..., L-1層目とL層目とを連結する
             self[l].prev = self[l-1]
             self[l-1].next = self[l]
-
-        ## 入力層の不要なメンバ変数はNoneにする ##
-        self[0].W = self[0].b = self[0].u = self[0].delta = self[0].h = self[0].dJdW = self[0].dJdb = None
 
     def get_params(self):
         """入力層を除く各層のパラメータのコピーと各層の活性化関数名および損失関数名を取得する.
@@ -387,7 +391,14 @@ class mlp(base._estimator_base):
 
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
-        self[0].z = x
+        if self.dropout:
+            if self[0].now_training:
+                self[0].make_mask(x.shape[0])
+                self[0].z = x * self[0].mask
+            else:
+                self[0].z = x * (1 - self[0].ratio)
+        else:
+            self[0].z = x
         return self[-1].prop_z()
             
     def back_prop(self, t:np.ndarray) -> None:
@@ -442,6 +453,8 @@ class mlp(base._estimator_base):
         )
         # パラメータ更新器
         optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta0, lamb=lamb)
+        if self.dropout:
+            self._set_training_flag(True)
         
         try:            
             for epoch in range(max_epoch):
@@ -458,8 +471,9 @@ class mlp(base._estimator_base):
         except NoImprovement as e:
             print(e)
             
-        finally:
-            self.log.end()
+        self.log.end()
+        if self.dropout:
+            self._set_training_flag(False)
     
     def test(self, X:np.ndarray, T:np.ndarray, log:bool=True, verbose=False) -> float:
         """テストデータ集合(X: 入力, T: 出力)を用いて性能を試験し、正解率を計算する.
@@ -514,6 +528,35 @@ class mlp(base._estimator_base):
         net.train(X_train, T_train, *args, **kwargs)
         return net
 
+    # ________________ Dropout methods ________________ 
+    def set_dropout(self, ratio):
+        # make sure ratio is a list
+        if not hasattr(ratio, '__iter__'):
+            ratio = [ratio for _ in range(len(self)-1)]
+        ratio = list(ratio)
+
+        if len(ratio) != len(self) - 1:
+            raise ValueError(
+                "`ratio` must be `len(ratio) == len(self) - 1`"
+                " because Dropout can be turned on only in an input layer and hidden layers."
+            )
+        
+        self.layers[0] = dropout_layer.from_layer(self[0], first=True, ratio=ratio[0])
+        for l in range(1, len(self)-1):
+            self.layers[l] = dropout_layer.from_layer(self[l], ratio=ratio[l])
+        self._connect_layers()
+            
+    # def _make_mask(self, n_input):
+    #     for layer in self[:-1]:
+    #         layer.make_mask(n_input)
+
+    def _set_training_flag(self, b: bool):
+        for layer in self[:-1]:
+            layer.now_training = b
+
+    
+
+
 
 
 class dropout_layer(layer):
@@ -548,7 +591,8 @@ class dropout_layer(layer):
     def fire(self, input:np.ndarray) -> np.ndarray:
         self.z = super().fire(input)
         if self.now_training:
-            self.u *= self.mask
+            n_input = self.z.shape[0]
+            self.make_mask(n_input)
             self.z *= self.mask
         else:
             self.z *= 1 - self.ratio
@@ -556,47 +600,47 @@ class dropout_layer(layer):
 
     def calc_delta(self, next_delta) -> np.ndarray:
         self.delta = super().calc_delta(next_delta)
-        if self.now_training:
-            self.delta *= self.mask
+        # if self.now_training:
+        self.delta *= self.mask
         return self.delta
 
     
         
-@dataclasses.dataclass
-class dropout_mlp(mlp):
-    ratio: float = dataclasses.field(default=0.5, repr=False)
+# @dataclasses.dataclass
+# class dropout_mlp(mlp):
+#     ratio: float = dataclasses.field(default=0.5, repr=False)
 
-    @classmethod
-    def from_mlp(cls, net, ratio=0.5):
-        # make sure ratio is a list
-        if not hasattr(ratio, '__iter__'):
-            ratio = [ratio for _ in range(len(net)-1)]
-        cp = net.copy()
-        layers = [dropout_layer.from_layer(cp[0], first=True, ratio=ratio[0])]
-        for l in range(1, len(cp)-1):
-            layers.append(dropout_layer.from_layer(cp[l], ratio=ratio[l]))
-        layers.append(cp[-1])
-        return cls(layers, loss=cp.loss, ratio=ratio)
+#     @classmethod
+#     def from_mlp(cls, net, ratio=0.5):
+#         # make sure ratio is a list
+#         if not hasattr(ratio, '__iter__'):
+#             ratio = [ratio for _ in range(len(net)-1)]
+#         cp = net.copy()
+#         layers = [dropout_layer.from_layer(cp[0], first=True, ratio=ratio[0])]
+#         for l in range(1, len(cp)-1):
+#             layers.append(dropout_layer.from_layer(cp[l], ratio=ratio[l]))
+#         layers.append(cp[-1])
+#         return cls(layers, loss=cp.loss, ratio=ratio)
 
-    def make_mask(self, n_input):
-        for layer in self[:-1]:
-            layer.make_mask(n_input)
+#     def make_mask(self, n_input):
+#         for layer in self[:-1]:
+#             layer.make_mask(n_input)
     
-    def forward_prop(self, x:np.ndarray) -> None:
-        if self[0].now_training:
-            self.make_mask(x.shape[0])
-            super().forward_prop(x * self[0].mask)
-        else:
-            super().forward_prop(x)
+#     def forward_prop(self, x:np.ndarray) -> None:
+#         if self[0].now_training:
+#             self.make_mask(x.shape[0])
+#             super().forward_prop(x * self[0].mask)
+#         else:
+#             super().forward_prop(x)
         
-    def train(self, *args, **kwargs):
-        self.set_training_flag(True)
-        super().train(*args, **kwargs)
-        self.set_training_flag(False)
+#     def train(self, *args, **kwargs):
+#         self.set_training_flag(True)
+#         super().train(*args, **kwargs)
+#         self.set_training_flag(False)
 
-    def set_training_flag(self, b: bool):
-        for layer in self[:-1]:
-            layer.now_training = b
+#     def set_training_flag(self, b: bool):
+#         for layer in self[:-1]:
+#             layer.now_training = b
         
             
 @dataclasses.dataclass
@@ -744,9 +788,9 @@ class mlp_classifier(mlp):
 
 
 
-@dataclasses.dataclass
-class dropout_mlp_classifier(dropout_mlp):
-    pass
+# @dataclasses.dataclass
+# class dropout_mlp_classifier(dropout_mlp):
+#     pass
 
 
 
@@ -817,9 +861,9 @@ class mlp_regressor(mlp):
 
 
     
-@dataclasses.dataclass
-class dropout_mlp_regressor(dropout_mlp):
-    pass
+# @dataclasses.dataclass
+# class dropout_mlp_regressor(dropout_mlp):
+#     pass
     
 
             
@@ -1115,7 +1159,7 @@ ACTIVATIONS = {
     
 @dataclasses.dataclass
 class loss_func:
-    net: mlp = dataclasses.field(default=None, repr=False)
+    net: mlp = dataclasses.field(init=False, default=None, repr=False)
     
     """損失関数"""    
     def __call__(self, x, t):
@@ -1296,15 +1340,15 @@ class logger:
             )
             # 検証用データ(X_val, T_val)に対する損失を計算する
             if self._compute_val_loss:
-                dropout = isinstance(self.net, dropout_mlp)
-                if dropout:
+                # dropout = isinstance(self.net, dropout_mlp)
+                if self.net.dropout:
                     # dropoutによる訓練中の場合は、検証用データに対する損失は一時的にdropoutをoffにする
-                    self.net.set_training_flag(False)
+                    self.net._set_training_flag(False)
                 self.val_loss.append(self.net.loss(self.X_val, self.T_val))
                 self.val_accuracy.append(self.net.test(self.X_val, self.T_val, False))
-                if dropout:
+                if self.net.dropout:
                     # 訓練に影響を与えないようにもとに戻す
-                    self.net.set_training_flag(True)
+                    self.net._set_training_flag(True)
             
             logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss = {self.loss[-1]:.3e}"
             if self._compute_val_loss:
