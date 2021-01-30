@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import keras.datasets as datasets
 from typing import Sequence, List, Callable
+import pickle
 
 
 DATASETS = {
@@ -26,7 +27,7 @@ fashion_mnist_labels = {
 }
 
 ### データを読み込む
-def load(
+def load_data(
         data='mnist',
         negative=False,
         n_target=10
@@ -128,3 +129,12 @@ def check_twodim(a:np.ndarray=None):
     elif a.ndim >= 3:
         raise ValueError("A three dimensional array was passed.")
     return a
+
+
+def save(obj, filename):
+    return obj.save()
+
+
+def load(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
