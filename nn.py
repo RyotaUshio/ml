@@ -440,11 +440,11 @@ class mlp(base._estimator_base):
         ## ネットワークの損失関数を設定 ##
         if self.loss is None:
             # 特に指定されなければ、出力層の活性化関数に対応する損失関数を選ぶ(最尤推定)
-            self.loss = self[-1].h.loss()
+            self.loss = self[-1].h.loss_type()
         # 損失関数オブジェクトにselfをひもづける
         self.loss.net = self
         # 正準連結関数か否か
-        self[-1].h.is_canonical = (type(self.loss) == self[-1].h.loss)
+        self[-1].h.is_canonical = (type(self.loss) == self[-1].h.loss_type)
         if not self[-1].h.is_canonical:
             warnings.warn(
                 "You are using a non-canonical link function as the activation function of output layer."
@@ -1051,7 +1051,7 @@ class act_func:
     
     param : float            = dataclasses.field(default=1.0)
     # 出力層の活性化関数として用いた場合の対応する損失関数クラス
-    loss : Type["loss_func"] = dataclasses.field(init=False, default=None, repr=False)
+    loss_type : Type["loss_func"] = dataclasses.field(init=False, default=None, repr=False)
     # 正準連結関数かどうか
     is_canonical : bool      = dataclasses.field(default=None)
 
@@ -1085,7 +1085,7 @@ class linear(act_func):
     """Linear (identity) function.
     """
     def __post_init__(self):
-        self.loss = mean_square
+        self.loss_type = mean_square
 
     def __call__(self, u):
         return self.param * u
@@ -1164,7 +1164,7 @@ class softmax(act_func):
     """Softmax function.
     """
     def __post_init__(self):
-        self.loss = mul_cross_entropy
+        self.loss_type = mul_cross_entropy
         
     def __call__(self, u):
         tmp = u - u.max()
