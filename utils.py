@@ -1,18 +1,24 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import keras.datasets
+import keras.datasets as datasets
 from typing import Sequence, List, Callable
 
 
+DATASETS = {
+    'mnist'         : datasets.mnist,
+    'fashion_mnist' : datasets.fashion_mnist,
+    'cifar10'       : datasets.cifar10,
+    'cifar100'      : datasets.cifar100
+}
 
 ### データを読み込む
 def load(
-        data = keras.datasets.mnist,
+        data='mnist',
         negative=False,
         n_target=10
         ):
-    (train_images, train_labels), (test_images, test_labels) = data.load_data()
+    (train_images, train_labels), (test_images, test_labels) = DATASETS[data].load_data()
     X_train, T_train = convert(train_images, train_labels, n_target)
     X_test, T_test = convert(test_images, test_labels, n_target)
 
@@ -56,11 +62,14 @@ def normalize(x:np.ndarray, lower=None, upper=None):
         upper = x.max()
     return (x - lower) / (upper - lower)
 
-def convert(inputs, labels, n_target):
+def convert(inputs, labels, n_target, flatten=True):
     """
     データセットをニューラルネットワークに入力できる形に変換する.
     """
-    X = np.array([input.flatten() for input in inputs])
+    if flatten:
+        X = np.array([input.flatten() for input in inputs])
+    else:
+        X = np.array(inputs)
     X = normalize(X)
     T = one_of_K(labels, n_target)
     return X, T
