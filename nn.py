@@ -697,7 +697,7 @@ class ensemble_mlp(base._estimator_base):
         elif self._soft:
             return self.soft_ensemble(x)
         else:
-            Exception("Both of '_hard' & '_soft' are set False. Something went wrong.")
+            raise Exception("Both of '_hard' & '_soft' are set False. Something went wrong.")
 
 
 @dataclasses.dataclass
