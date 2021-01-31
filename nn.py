@@ -699,6 +699,18 @@ class ensemble_mlp(base._estimator_base):
         else:
             raise Exception("Both of '_hard' & '_soft' are set False. Something went wrong.")
 
+    def test(self, X_test, T_test, verbose=False):
+        predicted = self(X_test)
+        true = utils.vec2label(T_test)
+        n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
+        n_sample = len(X_test)                             # 全サンプル数
+        accuracy = n_correct / n_sample                    # 正解率
+        
+        if verbose:
+            print(f"Accuracy: {accuracy * 100:.4f} %")
+                
+        return accuracy
+
 
 @dataclasses.dataclass
 class mlp_classifier(mlp):
@@ -981,6 +993,10 @@ class _optimizer_base:
         self.dWs = [None] + [0 for _ in range(1, len(self.net))] # 重み行列用
         self.dbs = [None] + [0 for _ in range(1, len(self.net))] # バイアス用
 
+    def __repr__(self):
+        return (f"<{self.__class__.name} optimizer with "
+                f"eta0={self.eta0}, eta={self.eta}, lamb={self.lamb}>")
+
     def get_update(self):
         """Set new values to`dWs` and `dbs`. Override this method when you create a new subclasses.
         """
@@ -1035,6 +1051,9 @@ class Momentum(_optimizer_base):
     def __init__(self, net, eta0, lamb, momentum=0.9):
         super().__init__(net, eta0, lamb)
         self.momentum = momentum
+
+    def __repr__(self):
+        return super().__repr__().replace(">", f", momentum={self.momentum}>")
         
     def get_update(self):
         for l in range(1, len(self.net)):
