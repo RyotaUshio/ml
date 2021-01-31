@@ -131,48 +131,37 @@ class layer:
         """
         return not self.is_unconnected()
 
-    def fire(self, input : np.ndarray) -> np.ndarray:
+    def fire(self) -> None:
+        """Make the neurons in the layer activated.
         """
-        Make the neurons in the layer activated.
-        
-        Parameters
-        ----------
-        input : np.ndarray of shape (n_sample, n_neuron of previous layer)
-           The input signal that flows into the layer.
-
-        Returns
-        -------
-        np.ndarray of shape (n_sample, n_neuron of this layer)
-            The output signal that flows out of the layer.
-        """
-        self.u = input @ self.W + self.b
+        self.u = self.prev.z @ self.W + self.b
         self.z = self.h( self.u )
-        return self.z
         
     def prop_z(self) -> np.ndarray:
         """入力層が現在保持している信号zを使って、ネットワークの入力層から
         自分自身まで信号を順伝播させる.
         """
         if self.is_first():
-            return self.z
+            pass
         else:
-            return self.fire(self.prev.prop_z())
+            self.prev.prop_z()
+            self.fire()
 
-    def calc_delta(self, next_delta) -> np.ndarray:
+    def calc_delta(self) -> None:
         """次の層における誤差から今の層の誤差を求める.
         """
-        self.delta = self.h.val2deriv(self.z) * (next_delta @ self.next.W.T)
-        return self.delta
-
-    def prop_delta(self) -> np.ndarray:
+        self.delta = self.h.val2deriv(self.z) * (self.next.delta @ self.next.W.T)
+    
+    def prop_delta(self) -> None:
         """出力層が現在保持している誤差deltaを使って、ネットワークの出力層から
         自分自身まで誤差を逆伝播させる.
         """
         if self.is_last():
-            return self.delta
+            pass
         else:
-            return self.calc_delta(self.next.prop_delta())
-
+            self.next.prop_delta()
+            self.calc_delta()
+        
     def set_gradient(self) -> None:
         """順伝播と逆伝播により出力zと誤差deltaが計算済みであることを前提に、
         パラメータに関する損失関数の勾配を計算する. 
@@ -223,17 +212,16 @@ class _dropout_layer_base(layer):
     def make_mask(self):
         self.mask = np.random.rand(self.size) >= self.ratio
 
-    def fire(self, input:np.ndarray) -> np.ndarray:
-        super().fire(input)
+    def fire(self) -> None:
+        super().fire()
         if self._now_training:
-            return self._fire_train()
+            self._fire_train()
         else:
-            return self._fire_test()
+            self._fire_test()
 
     def _fire_train(self):
         self.make_mask()
         self.z *= self.mask
-        return self.z
 
     def _fire_test(self):
         raise NotImplementedError
@@ -263,7 +251,7 @@ class inverted_dropout_layer(_dropout_layer_base):
         self.mask = self.mask / (1 - self.ratio)
 
     def _fire_test(self):
-        return self.z
+        pass
 
 
     
@@ -594,7 +582,7 @@ class mlp(base._estimator_base):
                     self.set_gradient()          # パラメータに関する損失の勾配を求める
                     optimizer.update()           # 勾配法による重み更新
                     self.log()                   # ログ出力
-                    
+
         except KeyboardInterrupt:
             warnings.warn('Training stopped by user.')
             
