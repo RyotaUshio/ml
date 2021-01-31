@@ -134,10 +134,12 @@ class layer:
     def fire(self) -> None:
         """Make the neurons in the layer activated.
         """
+        # np.matmul(self.prev.z, self.W, out=self.u)
+        # self.u += self.b
         self.u = self.prev.z @ self.W + self.b
-        self.z = self.h( self.u )
+        self.z = self.h( self.u ) # これをinplace化するにはact_funcの実装をいじる必要がある
         
-    def prop_z(self) -> np.ndarray:
+    def prop_z(self) -> None:
         """入力層が現在保持している信号zを使って、ネットワークの入力層から
         自分自身まで信号を順伝播させる.
         """
@@ -150,6 +152,8 @@ class layer:
     def calc_delta(self) -> None:
         """次の層における誤差から今の層の誤差を求める.
         """
+        # np.matmul(self.next.delta, self.next.W.T, out=self.delta)
+        # self.delta *= self.h.val2deriv(self.z)
         self.delta = self.h.val2deriv(self.z) * (self.next.delta @ self.next.W.T)
     
     def prop_delta(self) -> None:
@@ -169,9 +173,18 @@ class layer:
         batch_size = self.z.shape[0]
         self.dJdW = (self.prev.z.T @ self.delta) / batch_size
         self.dJdb = np.mean(self.delta, axis=0, keepdims=True)
+        # np.mean(self.delta, axis=0, keepdims=True, out=self.dJdb)
 
     def set_input(self, x : np.ndarray) -> None:
         self.z = x
+
+    def init_state(self, batch_size) -> None:
+        """For inplace computation.
+        """
+        self.u = np.zeros((batch_size, self.size))
+        self.delta = np.zeros((batch_size, self.size))
+        self.dJdW = np.zeros_like(self.W)
+        self.dJdb = np.zeros_like(self.b)
         
         
         
@@ -201,7 +214,7 @@ class _dropout_layer_base(layer):
         return f"<{self.__class__.__name__} of {self.size} neurons with {self.h.__class__.__name__} activation, dropout ratio={self.ratio}>"
     
     @classmethod
-    def from_layer(cls, layer, ratio=0.5, first=False):
+    def from_layer(cls, layer, ratio=0.5, first=False) -> Type['_dropout_layer_base']:
         """Convert a `layer` into a `dropout_layer`.
         """
         if first:
@@ -209,7 +222,7 @@ class _dropout_layer_base(layer):
         else:
             return cls(W=layer.W, b=layer.b, h=layer.h, ratio=ratio)
 
-    def make_mask(self):
+    def make_mask(self) -> None:
         self.mask = np.random.rand(self.size) >= self.ratio
 
     def fire(self) -> None:
@@ -219,17 +232,16 @@ class _dropout_layer_base(layer):
         else:
             self._fire_test()
 
-    def _fire_train(self):
+    def _fire_train(self) -> None:
         self.make_mask()
         self.z *= self.mask
 
-    def _fire_test(self):
+    def _fire_test(self) -> None:
         raise NotImplementedError
         
-    def calc_delta(self, next_delta) -> np.ndarray:
-        self.delta = super().calc_delta(next_delta)
+    def calc_delta(self) -> None:
+        super().calc_delta()
         self.delta *= self.mask
-        return self.delta
 
     def set_input(self, x : np.ndarray) -> None:
         if self._now_training:
@@ -240,17 +252,16 @@ class _dropout_layer_base(layer):
 
       
 class dropout_layer(_dropout_layer_base):
-    def _fire_test(self):
+    def _fire_test(self) -> None:
         self.z *= 1 - self.ratio
-        return self.z
     
 
 class inverted_dropout_layer(_dropout_layer_base):
-    def make_mask(self):
+    def make_mask(self) -> None:
         super().make_mask()
         self.mask = self.mask / (1 - self.ratio)
 
-    def _fire_test(self):
+    def _fire_test(self) -> None:
         pass
 
 
@@ -317,7 +328,7 @@ class mlp(base._estimator_base):
             sigmas=None,
             dropout_ratio: Sequence[float] =None,
             inverted=False
-    ) -> 'mlp':
+    ) -> Type['mlp']:
         """Create a new `mlp` object with specified shape & activation functions.
 
         Parameters
@@ -392,7 +403,7 @@ class mlp(base._estimator_base):
         return net
 
     @staticmethod
-    def _make_act_funcs(shape, act_funcs, hidden_act, out_act):
+    def _make_act_funcs(shape, act_funcs, hidden_act, out_act) -> List['act_func']:
         if act_funcs is not None:
             return act_funcs
         
@@ -505,6 +516,10 @@ class mlp(base._estimator_base):
     def predict_one_of_K(self, x):
         return utils.prob2one_of_K( self(x) )
 
+    def init_state(self, batch_size):
+        for layer in self[1:]:
+            layer.init_state(batch_size)
+
     def forward_prop(self, x:np.ndarray) -> None:
         """順伝播. xは入力ベクトル. ミニバッチでもOK"""
         self[0].set_input(x)
@@ -577,6 +592,7 @@ class mlp(base._estimator_base):
         try:            
             for epoch in range(max_epoch):
                 for X_mini, T_mini in minibatch_iter(X_train, T_train, batch_size):
+                    # self.init_state(len(X_mini))
                     self.forward_prop(X_mini)    # 順伝播
                     self.back_prop(T_mini)       # 逆伝播
                     self.set_gradient()          # パラメータに関する損失の勾配を求める
@@ -644,7 +660,6 @@ class mlp(base._estimator_base):
     # ____________pickle____________
     def save(self, filename):
         utils.save(self, filename)
-            
 
 
     
@@ -1077,7 +1092,7 @@ class act_func:
     
     param : float            = dataclasses.field(default=1.0)
     # 出力層の活性化関数として用いた場合の対応する損失関数クラス
-    loss_type : Type["loss_func"] = dataclasses.field(init=False, default=None, repr=False)
+    loss_type : Type['loss_func'] = dataclasses.field(init=False, default=None, repr=False)
     # 正準連結関数かどうか
     is_canonical : bool      = dataclasses.field(default=None)
 
@@ -1341,9 +1356,9 @@ class logger:
     def __post_init__(self):
         # 検証用データ(X_val, T_val)に対する誤差も計算するかどうか
         if not((self.X_val is None) and (self.T_val is None)):
-            self.X_val = utils.check_twodim(self.X_val)
-            self.T_val = utils.check_twodim(self.T_val)
-            self._compute_val_loss = True
+            # self.X_val = utils.check_twodim(self.X_val) # 遅いのでコメントアウト
+            # self.T_val = utils.check_twodim(self.T_val)
+            self._validate = True
         # 1エポックあたりiteration数
         self._iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
         # 記録をとる頻度はどんなに粗くても1エポック
@@ -1369,8 +1384,8 @@ class logger:
 
         # 損失がself.tol以上改善しなければ学習を打ち切る
         self.best_loss = np.inf
-        if self._compute_val_loss:
-            self.best_val_loss = np.inf
+        if self._validate:
+            self.best_val_accuracy = -np.inf
 
         # 学習開始時間を記録
         self._t0 = time.time()
@@ -1383,9 +1398,6 @@ class logger:
             'top',
             functions=(self._iter_to_epoch, self._epoch_to_iter)
         )
-            # functions=(lambda count: count/self._iter_per_epoch,
-            #            lambda epoch: epoch*self._iter_per_epoch)
-        # )
         
         secax.xaxis.set_major_locator(ticker.AutoLocator())
         secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
@@ -1413,7 +1425,7 @@ class logger:
                 self.n_sample
             )
             # 検証用データ(X_val, T_val)に対する損失を計算する
-            if self._compute_val_loss:
+            if self._validate:
                 if self.net.dropout:
                     # dropoutによる訓練中の場合は、検証用データに対する損失は一時的にdropoutをoffにする
                     self.net._set_training_flag(False)
@@ -1423,9 +1435,9 @@ class logger:
                     # 訓練に影響を与えないようにもとに戻す
                     self.net._set_training_flag(True)
             
-            logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss = {self.loss[-1]:.3e}"
-            if self._compute_val_loss:
-                logstr += f" (training), {self.val_loss[-1]:.3e} (validation)"
+            logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss={self.loss[-1]:.3e}"
+            if self._validate:
+                logstr += f" (training), {self.val_loss[-1]:.3e} (validation), Accuracy={self.val_accuracy[-1]*100:.2f}%"
             
             if self._stdout:
                 print(logstr)
@@ -1433,7 +1445,7 @@ class logger:
             if self._plot:
                 self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.delta_epoch))*self.delta_epoch) * self._iter_per_epoch)
                 
-                if self._compute_val_loss:
+                if self._validate:
                     self.ax.plot(self.count[-2:], self.val_loss[-2:], c=self.color2)
                     if self.marker and (len(self.count) >= 2):
                         marker = '^' if self.val_loss[-2] < self.val_loss[-1] else 'v'
@@ -1451,16 +1463,16 @@ class logger:
             # 早期終了など
             last_loss = self.avrg_last_epoch(self.loss)
             
-            if self._compute_val_loss:
-                last_val_loss = self.avrg_last_epoch(self.val_loss)
+            if self._validate:
+                last_val_accuracy = self.avrg_last_epoch(self.val_accuracy)
                 # 検証用データに対する損失に一定以上の改善が見られない場合
-                if last_val_loss > (self.best_val_loss - self.tol):
+                if last_val_accuracy > (self.best_val_accuracy - self.tol):
                     self._no_improvement_iter += self.delta_iter
                 else:
                     self._no_improvement_iter = 0
                 # 現時点までの暫定最適値を更新(検証用データ) 
-                if last_val_loss < self.best_val_loss:
-                    self.best_val_loss = self.val_loss[-1]
+                if last_val_accuracy > self.best_val_accuracy:
+                    self.best_val_accuracy = self.val_accuracy[-1]
                     self.best_params_val = self.net.get_params()
                     
             else:
@@ -1478,7 +1490,7 @@ class logger:
             _no_improvement_epoch = self._no_improvement_iter / self._iter_per_epoch
             if _no_improvement_epoch > self.patience_epoch:
                 self.should_stop_iter = self.iterations
-                which = 'Validation' if self._compute_val_loss else 'Training'
+                which = 'Validation' if self._validate else 'Training'
                 no_improvement_msg = (
                     f"{which} loss did not improve more than "
                     f"tol={self.tol} for the last {self.patience_epoch} epochs"
