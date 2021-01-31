@@ -58,9 +58,9 @@ class layer:
     delta : np.ndarray
         The error vector of the layer.
     dJdW : np.ndarray
-        Gradient vector of loss with repect to the weight matrix.
+        Gradient of loss with repect to the weight matrix.
     dJdb : np.ndarray
-        Gradient vector of loss with repect to the bias vector.
+        Gradient of loss with repect to the bias vector.
     prev : layer or None
         The previous layer in the network.
     next : layer or None
