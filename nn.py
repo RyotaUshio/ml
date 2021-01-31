@@ -186,7 +186,7 @@ class layer:
         
         
         
-class dropout_layer(layer):
+class _dropout_layer_base(layer):
     """Dropout layer.
 
     Dropout is an effective method to avoid overfitting.
@@ -224,21 +224,19 @@ class dropout_layer(layer):
         self.mask = np.random.rand(self.size) >= self.ratio
 
     def fire(self, input:np.ndarray) -> np.ndarray:
-        if self._now_training:
-            return self._fire_train(input)
-        else:
-            return self._fire_test(input)
-
-    def _fire_train(self, input):
         super().fire(input)
+        if self._now_training:
+            return self._fire_train()
+        else:
+            return self._fire_test()
+
+    def _fire_train(self):
         self.make_mask()
         self.z *= self.mask
         return self.z
 
-    def _fire_test(self, input):
-        super().fire(input)
-        self.z *= 1 - self.ratio
-        return self.z
+    def _fire_test(self):
+        raise NotImplementedError
         
     def calc_delta(self, next_delta) -> np.ndarray:
         self.delta = super().calc_delta(next_delta)
@@ -252,14 +250,20 @@ class dropout_layer(layer):
         else:
             self.z = x * (1 - self.ratio)
 
+      
+class dropout_layer(_dropout_layer_base):
+    def _fire_test(self):
+        self.z *= 1 - self.ratio
+        return self.z
+    
 
-class inverted_dropout_layer(dropout_layer):
+class inverted_dropout_layer(_dropout_layer_base):
     def make_mask(self):
         super().make_mask()
-        self.mask /= (1 - self.ratio)
+        self.mask = self.mask / (1 - self.ratio)
 
-    def _fire_test(self, input):
-        return 
+    def _fire_test(self):
+        return self.z
 
 
     
@@ -323,7 +327,8 @@ class mlp(base._estimator_base):
             hidden_act=None, out_act=None,
             loss=None,
             sigmas=None,
-            dropout_ratio: Sequence[float] =None
+            dropout_ratio: Sequence[float] =None,
+            inverted=False
     ) -> 'mlp':
         """Create a new `mlp` object with specified shape & activation functions.
 
@@ -394,7 +399,7 @@ class mlp(base._estimator_base):
 
         net = cls(layers, loss=LOSSES[loss]())
         if dropout_ratio:
-            net.set_dropout(dropout_ratio)
+            net.set_dropout(dropout_ratio, inverted)
             net.dropout = True
         return net
 
@@ -611,6 +616,7 @@ class mlp(base._estimator_base):
             loss=None,
             sigmas=None,
             dropout: Sequence[float] =None,
+            inverted=False,
             *args, **kwargs
     ):
         shape = [X_train.shape[1]] + list(hidden_shape) + [T_train.shape[1]]
@@ -619,13 +625,13 @@ class mlp(base._estimator_base):
             act_funcs=act_funcs,
             hidden_act=hidden_act,
             out_act=out_act,
-            loss=loss, sigmas=sigmas, dropout=dropout,
+            loss=loss, sigmas=sigmas, dropout=dropout, inverted=inverted
         )
         net.train(X_train, T_train, *args, **kwargs)
         return net
 
     # ________________ Dropout methods ________________ 
-    def set_dropout(self, ratio):
+    def set_dropout(self, ratio, inverted):
         # make sure ratio is a list
         if not hasattr(ratio, '__iter__'):
             ratio = [ratio for _ in range(len(self)-1)]
@@ -636,10 +642,11 @@ class mlp(base._estimator_base):
                 "`ratio` must be `len(ratio) == len(self) - 1`"
                 " because Dropout can be turned on only in an input layer and hidden layers."
             )
-        
-        self.layers[0] = dropout_layer.from_layer(self[0], first=True, ratio=ratio[0])
+
+        layer_type = inverted_dropout_layer if inverted else dropout_layer
+        self.layers[0] = layer_type.from_layer(self[0], first=True, ratio=ratio[0])
         for l in range(1, len(self)-1):
-            self.layers[l] = dropout_layer.from_layer(self[l], ratio=ratio[l])
+            self.layers[l] = layer_type.from_layer(self[l], ratio=ratio[l])
         self._connect_layers()
             
     def _set_training_flag(self, b: bool):
@@ -760,7 +767,8 @@ class mlp_classifier(mlp):
                    hidden_act='ReLU',
                    loss=None,
                    sigmas=None,
-                   dropout_ratio=None) -> 'mlp_classifier':
+                   dropout_ratio=None,
+                   inverted=False) -> 'mlp_classifier':
         out_act = cls._get_out_act_name(shape[-1])
         return super().from_shape(
             shape=shape,
@@ -768,7 +776,8 @@ class mlp_classifier(mlp):
             out_act=out_act,
             loss=loss,
             sigmas=sigmas,
-            dropout_ratio=dropout_ratio
+            dropout_ratio=dropout_ratio,
+            inverted=inverted
         )
     
     @classmethod
@@ -874,14 +883,16 @@ class mlp_regressor(mlp):
                    hidden_act='ReLU',
                    loss=None,
                    sigmas=None,
-                   dropout_ratio=None) -> 'mlp_regressor':
+                   dropout_ratio=None,
+                   inverted=False) -> 'mlp_regressor':
         return super().from_shape(
             shape=shape,
             hidden_act=hidden_act,
             out_act='linear',
             loss=loss,
             sigmas=sigmas,
-            dropout_ratio=dropout_ratio
+            dropout_ratio=dropout_ratio,
+            inverted=inverted
         )
 
     @classmethod
