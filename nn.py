@@ -221,23 +221,25 @@ class dropout_layer(layer):
             return cls(W=layer.W, b=layer.b, h=layer.h, ratio=ratio)
 
     def make_mask(self):
-        # ひとつのミニバッチに対しては同じニューロンをdropoutする、と考えるとこうなるが
-        # mask = (np.random.rand(1, self.size) >= self.ratio)
-        # self.mask = np.repeat(mask, n_input, axis=0)
-        # なんで全部バラバラにしたこっちのほうが性能高い??
-        # self.mask = (np.random.rand(n_input, self.size) >= self.ratio)
-        # いやこれでいい
         self.mask = np.random.rand(self.size) >= self.ratio
 
     def fire(self, input:np.ndarray) -> np.ndarray:
-        self.z = super().fire(input)
         if self._now_training:
-            self.make_mask()
-            self.z *= self.mask
+            return self._fire_train(input)
         else:
-            self.z *= 1 - self.ratio
+            return self._fire_test(input)
+
+    def _fire_train(self, input):
+        super().fire(input)
+        self.make_mask()
+        self.z *= self.mask
         return self.z
 
+    def _fire_test(self, input):
+        super().fire(input)
+        self.z *= 1 - self.ratio
+        return self.z
+        
     def calc_delta(self, next_delta) -> np.ndarray:
         self.delta = super().calc_delta(next_delta)
         self.delta *= self.mask
@@ -249,6 +251,15 @@ class dropout_layer(layer):
             self.z = x * self.mask
         else:
             self.z = x * (1 - self.ratio)
+
+
+class inverted_dropout_layer(dropout_layer):
+    def make_mask(self):
+        super().make_mask()
+        self.mask /= (1 - self.ratio)
+
+    def _fire_test(self, input):
+        return 
 
 
     
@@ -636,12 +647,8 @@ class mlp(base._estimator_base):
             layer._now_training = b
 
     # ____________pickle____________
-
     def save(self, filename):
-        if not filename.endswith('.pkl'):
-            filename += '.pkl'
-        with open(filename, 'wb') as f:
-            pickle.dump(self, f)
+        utils.save(self, filename)
             
 
 
@@ -1513,6 +1520,9 @@ class logger:
         state.pop('ax', None)
         state.pop('secax', None)
         return state
+
+    def save(self, filename):
+        utils.save(self, filename)
 
 
 def numerical_gradient(func, x, dx=1e-7):
