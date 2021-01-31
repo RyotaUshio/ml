@@ -132,7 +132,10 @@ def check_twodim(a:np.ndarray=None):
 
 
 def save(obj, filename):
-    return obj.save()
+    if not filename.endswith('.pkl'):
+        filename += '.pkl'
+    with open(filename, 'wb') as f:
+        pickle.dump(obj, f)
 
 
 def load(filename):
