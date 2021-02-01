@@ -181,10 +181,10 @@ class layer:
     def init_state(self, batch_size) -> None:
         """For inplace computation.
         """
-        self.u = np.zeros((batch_size, self.size))
-        self.delta = np.zeros((batch_size, self.size))
-        self.dJdW = np.zeros_like(self.W)
-        self.dJdb = np.zeros_like(self.b)
+        self.u = np.empty((batch_size, self.size))
+        self.delta = np.empty((batch_size, self.size))
+        self.dJdW = np.empty_like(self.W)
+        self.dJdb = np.empty_like(self.b)
         
         
         
@@ -1158,7 +1158,7 @@ class sigmoid(act_func):
         self.loss = cross_entropy
         
     def __call__(self, u):
-        return 0.5 * (1.0 + np.tanh(0.5 * self.param * u))
+        return x0.5 * (1.0 + np.tanh(0.5 * self.param * u))
     
     def val2deriv(self, z):
         return self.param * z * (1.0 - z)
