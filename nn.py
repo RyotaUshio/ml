@@ -303,7 +303,7 @@ class mlp(base._estimator_base):
     """
     
     layers: Sequence[layer]
-    loss: 'loss_func' = dataclasses.field(default=None)
+    loss: 'loss_func' = None
     log: 'logger' = dataclasses.field(init=False, default=None, repr=False)
     dropout : bool = dataclasses.field(init=False, default=False, repr=False)
     dropout_ratio : dataclasses.InitVar[Sequence[float]] = None
@@ -697,7 +697,7 @@ class mlp(base._estimator_base):
 @dataclasses.dataclass
 class ensemble_mlp(base._estimator_base):
     nets: Sequence[mlp]
-    how: str            = dataclasses.field(default='soft')
+    how: str = 'soft'
 
     def __post_init__(self):
         if self.how == 'hard':
@@ -1124,11 +1124,11 @@ class act_func:
     """An activation function class.
     """
     
-    param : float            = dataclasses.field(default=1.0)
+    param : float = 1.0
     # 出力層の活性化関数として用いた場合の対応する損失関数クラス
     loss_type : Type['loss_func'] = dataclasses.field(init=False, default=None, repr=False)
     # 正準連結関数かどうか
-    is_canonical : bool      = dataclasses.field(default=None)
+    is_canonical : bool = None
 
     def __call__(self, u):
         """活性化関数の値h(u)そのもの."""
@@ -1355,12 +1355,12 @@ class logger:
     """
     
     net : mlp                  = dataclasses.field(default=None, repr=False)
-    iterations : int           = dataclasses.field(default=0)
+    iterations : int           = 0
     loss: Sequence[float]      = dataclasses.field(default_factory=list)
     count: Sequence[int]       = dataclasses.field(default_factory=list)
-    delta_iter: int            = dataclasses.field(default=None)
-    n_sample : int             = dataclasses.field(default=None)
-    batch_size: int            = dataclasses.field(default=None)
+    delta_iter: int            = None
+    n_sample : int             = None
+    batch_size: int            = None
     X_train : np.ndarray       = dataclasses.field(default=None, repr=False)
     T_train : np.ndarray       = dataclasses.field(default=None, repr=False)
     X_val : np.ndarray         = dataclasses.field(default=None, repr=False)
@@ -1373,19 +1373,19 @@ class logger:
     how: str                   = dataclasses.field(default='plot', repr=False)
     delta_epoch : int          = dataclasses.field(default=20, repr=False)
     early_stopping: bool       = dataclasses.field(default=True)
-    patience_epoch: int        = dataclasses.field(default=10)
+    patience_epoch: int        = 10
     _no_improvement_iter: int  = dataclasses.field(init=False, default=0, repr=False)
-    tol: float                 = dataclasses.field(default=1e-5)
+    tol: float                 = 1e-5
     best_params: dict          = dataclasses.field(init=False, default=None, repr=False)
     best_params_val: dict      = dataclasses.field(init=False, default=None, repr=False)
     stop_params: dict          = dataclasses.field(init=False, default=None, repr=False)
     should_stop_iter : int     = dataclasses.field(init=False, default=None)
     AIC : float                = dataclasses.field(init=False, default=None)
     BIC : float                = dataclasses.field(init=False, default=None)
-    accuracy: float            = dataclasses.field(default=None)
+    accuracy: float            = None
     val_accuracy: float        = dataclasses.field(default_factory=list)
-    time: float                = dataclasses.field(default=None)
-    optimizer: _optimizer_base = dataclasses.field(default=None)
+    time: float                = None
+    optimizer: _optimizer_base = None
 
     def __post_init__(self):
         # 検証用データ(X_val, T_val)に対する誤差も計算するかどうか
