@@ -9,6 +9,7 @@ import dataclasses
 from typing import Type, Sequence, List, Callable
 import warnings
 import pickle
+import copy
 
 # from . 
 # from .
@@ -134,10 +135,8 @@ class layer:
     def fire(self) -> None:
         """Make the neurons in the layer activated.
         """
-        # np.matmul(self.prev.z, self.W, out=self.u)
-        # self.u += self.b
         self.u = self.prev.z @ self.W + self.b
-        self.z = self.h( self.u ) # これをinplace化するにはact_funcの実装をいじる必要がある
+        self.z = self.h( self.u )
         
     def prop_z(self) -> None:
         """入力層が現在保持している信号zを使って、ネットワークの入力層から
@@ -152,8 +151,6 @@ class layer:
     def calc_delta(self) -> None:
         """次の層における誤差から今の層の誤差を求める.
         """
-        # np.matmul(self.next.delta, self.next.W.T, out=self.delta)
-        # self.delta *= self.h.val2deriv(self.z)
         self.delta = self.h.val2deriv(self.z) * (self.next.delta @ self.next.W.T)
     
     def prop_delta(self) -> None:
@@ -173,18 +170,9 @@ class layer:
         batch_size = self.z.shape[0]
         self.dJdW = (self.prev.z.T @ self.delta) / batch_size
         self.dJdb = np.mean(self.delta, axis=0, keepdims=True)
-        # np.mean(self.delta, axis=0, keepdims=True, out=self.dJdb)
 
     def set_input(self, x : np.ndarray) -> None:
         self.z = x
-
-    def init_state(self, batch_size) -> None:
-        """For inplace computation.
-        """
-        self.u = np.empty((batch_size, self.size))
-        self.delta = np.empty((batch_size, self.size))
-        self.dJdW = np.empty_like(self.W)
-        self.dJdb = np.empty_like(self.b)
         
         
         
@@ -318,6 +306,8 @@ class mlp(base._estimator_base):
     loss: 'loss_func' = dataclasses.field(default=None)
     log: 'logger' = dataclasses.field(init=False, default=None, repr=False)
     dropout : bool = dataclasses.field(init=False, default=False, repr=False)
+    dropout_ratio : dataclasses.InitVar[Sequence[float]] = None
+    inverted : dataclasses.InitVar[bool] = True
 
     @classmethod
     def from_shape(
@@ -327,7 +317,7 @@ class mlp(base._estimator_base):
             loss=None,
             sigmas=None,
             dropout_ratio: Sequence[float] =None,
-            inverted=False
+            inverted=True
     ) -> Type['mlp']:
         """Create a new `mlp` object with specified shape & activation functions.
 
@@ -396,10 +386,8 @@ class mlp(base._estimator_base):
                 )
             )
 
-        net = cls(layers, loss=LOSSES[loss]())
-        if dropout_ratio:
-            net.set_dropout(dropout_ratio, inverted)
-            net.dropout = True
+        net = cls(layers, loss=LOSSES[loss](),
+                  dropout_ratio=dropout_ratio, inverted=inverted)
         return net
 
     @staticmethod
@@ -420,7 +408,7 @@ class mlp(base._estimator_base):
         return [None] + hidden_act + [out_act]
 
     @classmethod
-    def from_params(cls, weights:Sequence, biases:Sequence, act_funcs:Sequence[str], loss=None, include_first=False):
+    def from_params(cls, weights:Sequence, biases:Sequence, act_funcs:Sequence[str], loss=None, include_first=False, dropout_ratio=None, inverted=True, *args, **kwargs):
         """Make a mlp object by specifying paramters (= weight matrices and bias
         vectors) and activation functions of each layer.
         """
@@ -449,9 +437,14 @@ class mlp(base._estimator_base):
             ) for weight, bias, act_func in zip(weights, biases, act_funcs)]
             )
 
-        return cls(layers, loss=LOSSES[loss]())
+        return cls(layers, loss=LOSSES[loss](), dropout_ratio=dropout_ratio, inverted=inverted, *args, **kwargs)
     
-    def __post_init__(self):
+    def __post_init__(self, dropout_ratio, inverted):
+        ## Dropoutの設定 ##
+        if dropout_ratio:
+            self.set_dropout(dropout_ratio, inverted)
+            self.dropout = True
+        
         ## ネットワークの損失関数を設定 ##
         if self.loss is None:
             # 特に指定されなければ、出力層の活性化関数に対応する損失関数を選ぶ(最尤推定)
@@ -483,15 +476,45 @@ class mlp(base._estimator_base):
     def get_params(self):
         """入力層を除く各層のパラメータのコピーと各層の活性化関数名および損失関数名を取得する.
         """
-        return dict(
+        params =  dict(
             weights = [layer.W.copy() for layer in self[1:]],
             biases = [layer.b.copy() for layer in self[1:]],
             act_funcs = [layer.h.copy() for layer in self[1:]],
-            loss = self.loss.__class__.__name__
+            loss = self.loss.__class__.__name__,
         )
+        if self.dropout:
+            params.update(dict(
+                dropout_ratio = [layer.ratio for layer in self[:-1]],
+                inverted = isinstance(self[0], inverted_dropout_layer)
+            ))
+        return params
+            
 
-    def copy(self) -> 'mlp':
+    def copy(self, all=False) -> 'mlp':
+        """Make a copy of the network.
+
+        Parameters
+        ----------
+        all : bool, default=False
+            If False (default), only parameters which are necessary for 
+            inference, such as layer.W, layer.b, layer.h.
+            If True, all the internal variables such as layer.z, layer.u, 
+            layer.delta, ... are also copied. This takes a little bit of time.
+
+        Returns
+        -------
+        A copied object.
+        """
+        if all:
+            return copy.deepcopy(self)
         return self.__class__.from_params(**self.get_params())
+
+    def save(self, filename):
+        """Save the network as a pickle.
+
+        This method is an alias for utils.save.
+        """
+        utils.save(self, filename)
 
     def __len__(self):
         return len(self.layers)
@@ -508,25 +531,37 @@ class mlp(base._estimator_base):
         return self[-1].z.copy()
 
     def predict_label(self, x, label_dict:dict=None):
+        """Return the predicted class labels, not inferior probability of each class.
+        """
         labels = utils.prob2label( self(x) )
         if label_dict:
             return np.array([label_dict[label] for label in labels], dtype=object)
         return labels
 
     def predict_one_of_K(self, x):
+        """Return the predicted class labels expressed in 1-of-K encoding.
+        """
         return utils.prob2one_of_K( self(x) )
 
-    def init_state(self, batch_size):
-        for layer in self[1:]:
-            layer.init_state(batch_size)
-
-    def forward_prop(self, x:np.ndarray) -> None:
-        """順伝播. xは入力ベクトル. ミニバッチでもOK"""
+    def forward_prop(self, x : np.ndarray) -> None:
+        """Forward propagation computation.
+        
+        Parameters
+        ----------
+        x : np.ndarray of shape (n_sample, n_feature)
+            An input signal of the network.
+        """
         self[0].set_input(x)
         return self[-1].prop_z()
             
-    def back_prop(self, t:np.ndarray) -> None:
-        """教師信号ベクトルtをもとに誤差逆伝播法による学習を行う."""
+    def back_prop(self, t : np.ndarray) -> None:
+        """Compute errors in each layer with backpropagation.
+        
+        Parameters
+        ----------
+        t : nd.ndarray of shape (n_sample, n_target)
+            A target signal.
+        """
         self[-1].delta = self.loss.error(t)  # 出力層の誤差はすぐに計算できる.
         self[1].prop_delta()                 # それを使って誤差を順次前の層へ逆伝播させていく.
 
@@ -592,7 +627,6 @@ class mlp(base._estimator_base):
         try:            
             for epoch in range(max_epoch):
                 for X_mini, T_mini in minibatch_iter(X_train, T_train, batch_size):
-                    # self.init_state(len(X_mini))
                     self.forward_prop(X_mini)    # 順伝播
                     self.back_prop(T_mini)       # 逆伝播
                     self.set_gradient()          # パラメータに関する損失の勾配を求める
@@ -620,7 +654,7 @@ class mlp(base._estimator_base):
             loss=None,
             sigmas=None,
             dropout: Sequence[float] =None,
-            inverted=False,
+            inverted=True,
             *args, **kwargs
     ):
         shape = [X_train.shape[1]] + list(hidden_shape) + [T_train.shape[1]]
@@ -634,7 +668,7 @@ class mlp(base._estimator_base):
         net.train(X_train, T_train, *args, **kwargs)
         return net
 
-    # ________________ Dropout methods ________________ 
+    # ______________________ Dropout methods ______________________
     def set_dropout(self, ratio, inverted):
         # make sure ratio is a list
         if not hasattr(ratio, '__iter__'):
@@ -657,9 +691,6 @@ class mlp(base._estimator_base):
         for layer in self[:-1]:
             layer._now_training = b
 
-    # ____________pickle____________
-    def save(self, filename):
-        utils.save(self, filename)
 
 
     
@@ -685,14 +716,14 @@ class ensemble_mlp(base._estimator_base):
         agg = 0.0
         for net in self.nets:
             agg += net.predict_one_of_K(x)
-        return np.argmax(agg, axis=1)
+        return agg
 
     def soft_ensemble(self, x):
         agg = 0.0
         for net in self.nets:
             agg += net(x)
         agg /= len(self.nets)
-        return utils.prob2label(agg)
+        return agg
 
     def __call__(self, x):
         if self._hard:
@@ -703,8 +734,9 @@ class ensemble_mlp(base._estimator_base):
             raise Exception("Both of '_hard' & '_soft' are set False. Something went wrong.")
 
     def test(self, X_test, T_test, verbose=False):
-        predicted = self(X_test)
-        true = utils.vec2label(T_test)
+        # 多クラス分類問題の場合
+        predicted = utils.vec2label(self(X_test))
+        true      = utils.vec2label(T_test)
         n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
         n_sample = len(X_test)                             # 全サンプル数
         accuracy = n_correct / n_sample                    # 正解率
@@ -714,6 +746,8 @@ class ensemble_mlp(base._estimator_base):
                 
         return accuracy
 
+
+    
 
 @dataclasses.dataclass
 class mlp_classifier(mlp):
@@ -768,8 +802,8 @@ class mlp_classifier(mlp):
     
     classification_type: str = dataclasses.field(init=False)
 
-    def __post_init__(self):
-        super().__post_init__()
+    def __post_init__(self, dropout_ratio, inverted):
+        super().__post_init__(dropout_ratio, inverted)
         n_output = self.shape[-1]
         if n_output >= 2:
             self.classification_type = 'multi'
@@ -783,7 +817,7 @@ class mlp_classifier(mlp):
                    loss=None,
                    sigmas=None,
                    dropout_ratio=None,
-                   inverted=False) -> 'mlp_classifier':
+                   inverted=True) -> 'mlp_classifier':
         out_act = cls._get_out_act_name(shape[-1])
         return super().from_shape(
             shape=shape,
@@ -899,7 +933,7 @@ class mlp_regressor(mlp):
                    loss=None,
                    sigmas=None,
                    dropout_ratio=None,
-                   inverted=False) -> 'mlp_regressor':
+                   inverted=True) -> 'mlp_regressor':
         return super().from_shape(
             shape=shape,
             hidden_act=hidden_act,
@@ -997,7 +1031,7 @@ class _optimizer_base:
         self.dbs = [None] + [0 for _ in range(1, len(self.net))] # バイアス用
 
     def __repr__(self):
-        return (f"<{self.__class__.name} optimizer with "
+        return (f"<{self.__class__.__name__} optimizer with "
                 f"eta0={self.eta0}, eta={self.eta}, lamb={self.lamb}>")
 
     def get_update(self):
@@ -1158,7 +1192,7 @@ class sigmoid(act_func):
         self.loss = cross_entropy
         
     def __call__(self, u):
-        return x0.5 * (1.0 + np.tanh(0.5 * self.param * u))
+        return 0.5 * (1.0 + np.tanh(0.5 * self.param * u))
     
     def val2deriv(self, z):
         return self.param * z * (1.0 - z)
