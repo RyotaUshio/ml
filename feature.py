@@ -114,12 +114,23 @@ class autoencoder(_autoencoder_base):
             layer_by_layer=True,
             **kwargs):
 
-        if layer_by_layer:
+        if not layer_by_layer:
+            return super().fit(
+            X_train=X_train,
+            hidden_shape_half=hidden_shape_half,
+            encode_act=encode_act,
+            decode_act=decode_act,
+            **kwargs
+        )
+        
+        else:
             encode_act, decode_act = cls._make_activation_list(
                 hidden_shape_half=hidden_shape_half, encode_act=encode_act, decode_act=decode_act
             )
             nets = []
+            
             for i, (n_hidden_unit, encode_act, decode_act) in enumerate(zip(hidden_shape_half, encode_act, decode_act)):
+                
                 if verbose:
                     print(f"Training simple autoencoder {i+1}/{len(hidden_shape_half)}...")
 
@@ -151,16 +162,6 @@ class autoencoder(_autoencoder_base):
             layers = [net[0]] + layers
 
             return cls(layers=layers, loss=net.loss, simple_aes=simple_aes)
-
-        return super().fit(
-            X_train=X_train,
-            hidden_shape_half=hidden_shape_half,
-            encode_act=encode_act,
-            decode_act=decode_act,
-            **kwargs
-        )
-
-            
   
 
     
