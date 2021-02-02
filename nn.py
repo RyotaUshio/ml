@@ -312,11 +312,11 @@ class mlp(base._estimator_base):
     @classmethod
     def from_shape(
             cls, shape: Sequence[int],
-            act_funcs: Sequence[str]=None,
+            act_funcs: Sequence[str]=None, *,
             hidden_act=None, out_act=None,
             loss=None,
             sigmas=None,
-            *args, **kwargs
+            **kwargs
     ) -> Type['mlp']:
         """Create a new `mlp` object with specified shape & activation functions.
 
@@ -385,7 +385,7 @@ class mlp(base._estimator_base):
                 )
             )
 
-        net = cls(layers, loss=LOSSES[loss](), *args, **kwargs)
+        net = cls(layers, loss=LOSSES[loss](), **kwargs)
         return net
 
     @staticmethod
@@ -580,13 +580,13 @@ class mlp(base._estimator_base):
     def train(
             self,
             X_train:np.ndarray,
-            T_train:np.ndarray,
+            T_train:np.ndarray, *,
             eta0:float=0.05,
             optimizer='AdaGrad',
             max_epoch:int=100,
             batch_size=200,
             lamb=0.0001, 
-            *args, **kwargs
+            **kwargs
     ) -> None:
         """
         訓練データ集合(X: 入力, T: 出力)をネットワークに学習させる. エポック数がmax_iterを超えるか、
@@ -624,7 +624,7 @@ class mlp(base._estimator_base):
             batch_size=batch_size,
             X_train=X_train, T_train=T_train,
             optimizer=optimizer,
-            *args, **kwargs
+            **kwargs
         )
         if self.dropout:
             self._set_training_flag(True)
@@ -653,32 +653,10 @@ class mlp(base._estimator_base):
              T_test : np.ndarray,
              log:bool=True,
              verbose=False) -> float:
-        """Test the classifier and return the value of accuracy.
-
+        """
         将来のアップデートでevaluatorクラスに移動するかも。
         """
-        # 多クラス分類問題
-        if self[-1].size > 1:
-            predicted = self.predict_label(X_test)
-            true      = utils.vec2label(T_test)
-        # 2クラス分類問題
-        else:
-            predicted = np.where(self(X_test) > 0.5, 1, 0)
-            true      = T_test
-        
-        n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
-        n_sample = len(X_test)                             # 全サンプル数
-        accuracy = n_correct / n_sample                    # 正解率
-        
-        if log:
-            if self.log is not None:
-                self.log.accuracy = accuracy
-            else:
-                warnings.warn("Can't write log because self.log is None.")
-        if verbose:
-            print(f"Accuracy: {accuracy * 100:.4f} %")
-                
-        return accuracy
+        return 0.0
     
     @classmethod
     def fit(
@@ -686,13 +664,13 @@ class mlp(base._estimator_base):
             X_train:np.ndarray,
             T_train:np.ndarray,
             hidden_shape: Sequence[int],
-            act_funcs: Sequence[str]=None,
+            act_funcs: Sequence[str]=None, *,
             hidden_act='ReLU', out_act=None,
             loss=None,
             sigmas=None,
-            dropout: Sequence[float] =None,
+            dropout_ratio: Sequence[float] =None,
             inverted=True,
-            *args, **kwargs
+            **kwargs
     ):
         shape = [X_train.shape[1]] + list(hidden_shape) + [T_train.shape[1]]
         net = cls.from_shape(
@@ -700,9 +678,9 @@ class mlp(base._estimator_base):
             act_funcs=act_funcs,
             hidden_act=hidden_act,
             out_act=out_act,
-            loss=loss, sigmas=sigmas, dropout=dropout, inverted=inverted
+            loss=loss, sigmas=sigmas, dropout_ratio=dropout_ratio, inverted=inverted
         )
-        net.train(X_train, T_train, *args, **kwargs)
+        net.train(X_train=X_train, T_train=T_train, **kwargs)
         return net
 
     # ______________________ Dropout methods ______________________
@@ -856,10 +834,10 @@ class mlp_classifier(mlp):
                    *args, **kwargs
     ) -> 'mlp_classifier':
         out_act = cls._get_out_act_name(shape[-1])
+        kwargs.update({'out_act' : out_act})
         return super().from_shape(
             shape=shape,
             hidden_act=hidden_act,
-            out_act=out_act,
             loss=loss,
             sigmas=sigmas,
             *args, **kwargs
@@ -873,12 +851,11 @@ class mlp_classifier(mlp):
             hidden_act='ReLU',
             loss=None,
             sigmas=None,
-            dropout: Sequence[float] =None,
             *args, **kwargs):
         return super().fit(
             X_train=X_train, T_train=T_train, hidden_shape=hidden_shape,
             hidden_act=hidden_act,
-            loss=loss, sigmas=sigmas, dropout=dropout, *args, **kwargs
+            loss=loss, sigmas=sigmas, *args, **kwargs
         )
 
     @staticmethod
@@ -969,10 +946,10 @@ class mlp_regressor(mlp):
                    loss=None,
                    sigmas=None,
                    *args, **kwargs) -> 'mlp_regressor':
+        kwargs.update({'out_act' : 'linear'})
         return super().from_shape(
             shape=shape,
             hidden_act=hidden_act,
-            out_act='linear',
             loss=loss,
             sigmas=sigmas,
             *args, **kwargs
@@ -986,12 +963,11 @@ class mlp_regressor(mlp):
             hidden_act='ReLU',
             loss=None,
             sigmas=None,
-            dropout: Sequence[float] =None,
             *args, **kwargs):
         return super().fit(
             X_train=X_train, T_train=T_train, hidden_shape=hidden_shape,
             hidden_act=hidden_act,
-            loss=loss, sigmas=sigmas, dropout=dropout, *args, **kwargs
+            loss=loss, sigmas=sigmas, *args, **kwargs
         )
 
 
@@ -1162,7 +1138,7 @@ class act_func:
     # 出力層の活性化関数として用いた場合の対応する損失関数クラス
     loss_type : Type['loss_func'] = dataclasses.field(init=False, default=None, repr=False)
     # 正準連結関数かどうか
-    is_canonical : bool = None
+    is_canonical : bool = dataclasses.field(init=False, default=None)
 
     def __call__(self, u):
         """活性化関数の値h(u)そのもの."""
@@ -1173,7 +1149,7 @@ class act_func:
         raise NotImplementedError
 
     def copy(self):
-        return self.__class__(param=self.param, is_canonical=self.is_canonical)
+        return copy.copy(self)
 
     @staticmethod
     def make(arg):
@@ -1209,7 +1185,7 @@ class step(act_func):
     """
     def __post_init__(self):
         # sigmoid(a*u)でa -> +inf とした極限だと思えば、交差エントロピーでいいのでは??
-        self.loss = cross_entropy
+        self.loss_type = cross_entropy
         
     def __call__(self, u):
         return np.maximum(np.sign(u), 0.0)
@@ -1223,7 +1199,7 @@ class sigmoid(act_func):
     """Logistic sigmoid function.
     """
     def __post_init__(self):
-        self.loss = cross_entropy
+        self.loss_type = cross_entropy
         
     def __call__(self, u):
         return 0.5 * (1.0 + np.tanh(0.5 * self.param * u))
@@ -1399,7 +1375,7 @@ class logger:
     T_train : np.ndarray       = dataclasses.field(default=None, repr=False)
     X_val : np.ndarray         = dataclasses.field(default=None, repr=False)
     T_val : np.ndarray         = dataclasses.field(default=None, repr=False)
-    _compute_val_loss : bool   = dataclasses.field(default=False, repr=False)
+    _validate : bool   = dataclasses.field(default=False, repr=False)
     val_loss: Sequence[float]  = dataclasses.field(default_factory=list)
     color : str                = dataclasses.field(default='tab:blue', repr=False)
     color2 : str               = dataclasses.field(default='tab:orange', repr=False)
@@ -1453,7 +1429,7 @@ class logger:
         # 損失がself.tol以上改善しなければ学習を打ち切る
         self.best_loss = np.inf
         if self._validate:
-            self.best_val_accuracy = -np.inf
+            self.best_val_loss = np.inf
 
         # 学習開始時間を記録
         self._t0 = time.time()
@@ -1512,6 +1488,9 @@ class logger:
 
             if self._plot:
                 self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.delta_epoch))*self.delta_epoch) * self._iter_per_epoch)
+                if len(self.loss) == 2:
+                    ymax = 1 if self.loss[1] < 2 else self.loss[1]
+                    self.ax.set_ylim(0, ymax)
                 
                 if self._validate:
                     self.ax.plot(self.count[-2:], self.val_loss[-2:], c=self.color2)
@@ -1532,15 +1511,15 @@ class logger:
             last_loss = self.avrg_last_epoch(self.loss)
             
             if self._validate:
-                last_val_accuracy = self.avrg_last_epoch(self.val_accuracy)
+                last_val_loss = self.avrg_last_epoch(self.val_loss)
                 # 検証用データに対する損失に一定以上の改善が見られない場合
-                if last_val_accuracy > (self.best_val_accuracy - self.tol):
+                if last_val_loss > (self.best_val_loss - self.tol):
                     self._no_improvement_iter += self.delta_iter
                 else:
                     self._no_improvement_iter = 0
                 # 現時点までの暫定最適値を更新(検証用データ) 
-                if last_val_accuracy > self.best_val_accuracy:
-                    self.best_val_accuracy = self.val_accuracy[-1]
+                if last_val_loss < self.best_val_loss:
+                    self.best_val_loss = self.val_loss[-1]
                     self.best_params_val = self.net.get_params()
                     
             else:
