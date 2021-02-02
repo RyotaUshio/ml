@@ -316,8 +316,7 @@ class mlp(base._estimator_base):
             hidden_act=None, out_act=None,
             loss=None,
             sigmas=None,
-            dropout_ratio: Sequence[float] =None,
-            inverted=True
+            *args, **kwargs
     ) -> Type['mlp']:
         """Create a new `mlp` object with specified shape & activation functions.
 
@@ -386,8 +385,7 @@ class mlp(base._estimator_base):
                 )
             )
 
-        net = cls(layers, loss=LOSSES[loss](),
-                  dropout_ratio=dropout_ratio, inverted=inverted)
+        net = cls(layers, loss=LOSSES[loss](), *args, **kwargs)
         return net
 
     @staticmethod
@@ -408,7 +406,14 @@ class mlp(base._estimator_base):
         return [None] + hidden_act + [out_act]
 
     @classmethod
-    def from_params(cls, weights:Sequence, biases:Sequence, act_funcs:Sequence[str], loss=None, include_first=False, dropout_ratio=None, inverted=True, *args, **kwargs):
+    def from_params(
+            cls, weights:Sequence,
+            biases:Sequence,
+            act_funcs:Sequence[str],
+            loss=None,
+            include_first=False,
+            *args, **kwargs
+    ):
         """Make a mlp object by specifying paramters (= weight matrices and bias
         vectors) and activation functions of each layer.
         """
@@ -437,7 +442,7 @@ class mlp(base._estimator_base):
             ) for weight, bias, act_func in zip(weights, biases, act_funcs)]
             )
 
-        return cls(layers, loss=LOSSES[loss](), dropout_ratio=dropout_ratio, inverted=inverted, *args, **kwargs)
+        return cls(layers, loss=LOSSES[loss](), *args, **kwargs)
     
     def __post_init__(self, dropout_ratio, inverted):
         ## Dropoutの設定 ##
@@ -642,6 +647,38 @@ class mlp(base._estimator_base):
         self.log.end()
         if self.dropout:
             self._set_training_flag(False)
+
+    def test(self,
+             X_test : np.ndarray,
+             T_test : np.ndarray,
+             log:bool=True,
+             verbose=False) -> float:
+        """Test the classifier and return the value of accuracy.
+
+        将来のアップデートでevaluatorクラスに移動するかも。
+        """
+        # 多クラス分類問題
+        if self[-1].size > 1:
+            predicted = self.predict_label(X_test)
+            true      = utils.vec2label(T_test)
+        # 2クラス分類問題
+        else:
+            predicted = np.where(self(X_test) > 0.5, 1, 0)
+            true      = T_test
+        
+        n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
+        n_sample = len(X_test)                             # 全サンプル数
+        accuracy = n_correct / n_sample                    # 正解率
+        
+        if log:
+            if self.log is not None:
+                self.log.accuracy = accuracy
+            else:
+                warnings.warn("Can't write log because self.log is None.")
+        if verbose:
+            print(f"Accuracy: {accuracy * 100:.4f} %")
+                
+        return accuracy
     
     @classmethod
     def fit(
@@ -816,8 +853,8 @@ class mlp_classifier(mlp):
                    hidden_act='ReLU',
                    loss=None,
                    sigmas=None,
-                   dropout_ratio=None,
-                   inverted=True) -> 'mlp_classifier':
+                   *args, **kwargs
+    ) -> 'mlp_classifier':
         out_act = cls._get_out_act_name(shape[-1])
         return super().from_shape(
             shape=shape,
@@ -825,8 +862,7 @@ class mlp_classifier(mlp):
             out_act=out_act,
             loss=loss,
             sigmas=sigmas,
-            dropout_ratio=dropout_ratio,
-            inverted=inverted
+            *args, **kwargs
         )
     
     @classmethod
@@ -932,16 +968,14 @@ class mlp_regressor(mlp):
                    hidden_act='ReLU',
                    loss=None,
                    sigmas=None,
-                   dropout_ratio=None,
-                   inverted=True) -> 'mlp_regressor':
+                   *args, **kwargs) -> 'mlp_regressor':
         return super().from_shape(
             shape=shape,
             hidden_act=hidden_act,
             out_act='linear',
             loss=loss,
             sigmas=sigmas,
-            dropout_ratio=dropout_ratio,
-            inverted=inverted
+            *args, **kwargs
         )
 
     @classmethod
