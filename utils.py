@@ -45,10 +45,12 @@ def load_data(
 
 ## データセットの整形用の諸関数
 
-def one_of_K(labels:Sequence[int], n_target:int):
+def one_of_K(labels:Sequence[int], n_target=None):
     """
     正解ラベルの集合labelsを1 of K符号化法によりベクトル化する
     """
+    if n_target is None:
+        n_target = len(np.unique(labels))
     I = np.identity(n_target)
     return I[labels]
 
@@ -61,6 +63,8 @@ def vec2label(one_of_K:Sequence):
         return np.argmax(one_of_K, axis=1)
     else:
         raise ValueError("Expected an array-like of ndim <= 2, got {ndim}")
+
+vec2digit = vec2label # alias
 
 def normalize(x:np.ndarray, lower=None, upper=None):
     """
@@ -117,6 +121,8 @@ def prob2one_of_K(x):
     mask = (x >= maximum)
     return np.ones(x.shape) * mask
 
+def is_one_of_K(T):
+    return (np.all((T == 0) | (T == 1)) and np.all(np.sum(T, axis=1) == 1))
 
 def check_twodim(a:np.ndarray=None):
     """Make sure an array is two-dimensinal.
@@ -143,3 +149,62 @@ def load(filename):
         filename += '.pkl'
     with open(filename, 'rb') as f:
         return pickle.load(f)
+
+
+def label_rep(T : np.ndarray):
+    if is_one_of_K(T):
+        return 'one of K'
+    elif T.size == T.shape[0]:
+        return 'digit'
+    else:
+        raise ValueError(
+            "Label must be a digit or a 1-of-K encoded vector."
+        )
+
+    
+def estimate_params(
+        X : np.ndarray, T : np.ndarray,
+        mean : bool=True, cov : bool=True, prior : bool=True
+):
+    """Maximum likelihodd estimation of mean & covariance of the normal distribution,
+    and prior probability of each class.
+
+    Parameters
+    ----------
+    X, T : np.ndarray of shape (n_sample, n_feature) & (n_sample, n_target)
+        The dataset whose parameters are computed.
+    mean, cov, prior : bool, defalut=True
+        Whether to compute each parameter or not.
+
+    Returns
+    -------
+    means, covs, priors : np.ndarray
+        Arrays that contain computed parameter of each class.
+    """
+    _label_rep = label_rep(T)
+    n_sample = len(T)
+
+    unq, idx = np.unique(T, axis=0, return_inverse=True)
+    sortidx = np.argsort(idx)
+    idx = idx[sortidx]
+    X = X[sortidx]
+    T = T[sortidx]
+    
+    means = []
+    covs = []
+    priors = []
+    
+    for i in range(len(unq)):
+        ith = i if _label_rep == 'digit' else len(unq)-i-1
+        class_i = X[idx == ith]
+
+        if mean:
+            mean_i = np.mean(class_i, axis=0)
+            means.append(mean_i)
+        if cov:
+            cov_i = np.cov(class_i, rowvar=False)
+            covs.append(cov_i)
+        if prior:
+            priors.append(len(class_i) / n_sample)
+        
+    return np.array(means), np.array(covs), np.array(priors)
