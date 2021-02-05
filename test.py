@@ -6,7 +6,7 @@ import numpy as np
 
 net = nn.mlp_classifier.from_shape(
     [784, 200, 50, 10], hidden_act='LeakyReLU',
-    dropout_ratio=[0.1, 0.15, 0.1], inverted=True
+    dropout_ratio=[0.1, 0.4, 0.25], inverted=True
 )
 net.train(
     X_train=X_train, T_train=T_train,
@@ -16,6 +16,6 @@ net.train(
 )
 
 print("Train: ", end="")
-net.test(X_train, T_train, log=False, verbose=True)
+net.test(X_train, T_train, verbose=True)
 print("Test : ", end="")
 net.test(X_test, T_test, verbose=True)

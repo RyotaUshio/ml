@@ -1270,10 +1270,7 @@ class logger:
     """
     
     net : mlp                  = dataclasses.field(default=None, repr=False)
-    iterations : int           = dataclasses.field(init=False, default=0)
-    loss: Sequence[float]      = dataclasses.field(default_factory=list)
-    count: Sequence[int]       = dataclasses.field(default_factory=list)
-    delta_iter: int            = None
+    loss: Sequence[float]      = dataclasses.field(default_factory=list, repr=False)
     n_sample : int             = None
     batch_size: int            = None
     X_train : np.ndarray       = dataclasses.field(default=None, repr=False)
@@ -1281,38 +1278,35 @@ class logger:
     X_val : np.ndarray         = dataclasses.field(default=None, repr=False)
     T_val : np.ndarray         = dataclasses.field(default=None, repr=False)
     _validate : bool   = dataclasses.field(default=False, repr=False)
-    val_loss: Sequence[float]  = dataclasses.field(default_factory=list)
+    val_loss: Sequence[float]  = dataclasses.field(default_factory=list, repr=False)
     color : str                = dataclasses.field(default='tab:blue', repr=False)
     color2 : str               = dataclasses.field(default='tab:orange', repr=False)
-    marker: bool               = dataclasses.field(default=False, repr=False)
     how: str                   = dataclasses.field(default='plot', repr=False)
-    delta_epoch : int          = dataclasses.field(default=20, repr=False)
+    delta_epoch : int          = dataclasses.field(default=10, repr=False)
     early_stopping: bool       = dataclasses.field(default=True)
     patience_epoch: int        = 10
-    _no_improvement_iter: int  = dataclasses.field(init=False, default=0, repr=False)
     tol: float                 = 1e-5
     best_params: dict          = dataclasses.field(init=False, default=None, repr=False)
-    best_params_val: dict      = dataclasses.field(init=False, default=None, repr=False)
     stop_params: dict          = dataclasses.field(init=False, default=None, repr=False)
-    should_stop_iter : int     = dataclasses.field(init=False, default=None)
     AIC : float                = dataclasses.field(init=False, default=None)
     BIC : float                = dataclasses.field(init=False, default=None)
-    val_accuracy: float        = dataclasses.field(default_factory=list)
     time: float                = None
     optimizer: _optimizer_base = None
 
     def __post_init__(self):
+        self.accumulated_loss = 0
         
-        # 検証用データ(X_val, T_val)に対する誤差も計算するかどうか
+        # whether to compute the values of loss for validation set (X_val, T_val)
         if not((self.X_val is None) and (self.T_val is None)):
             self._validate = True
-        # 1エポックあたりiteration数
+            self.val_accuracy = []
+                
+        self.iterations = 0  # iterations so far
+        self.epoch      = -1 # epochs so far
+        # numbers of iterations per epoch
         self._iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
-        # 記録をとる頻度はどんなに粗くても1エポック
-        if self.delta_iter is None:
-            self.delta_iter = self._iter_per_epoch
-        self.delta_iter = min(self.delta_iter, self._iter_per_epoch)
-        # 損失の変化をどう表示するか
+        
+        # how to show the values of loss function
         if self.how == 'both':
             self._plot, self._stdout = True, True
         elif self.how == 'plot':
@@ -1324,153 +1318,162 @@ class logger:
         else:
             raise ValueError("logger.how must be either of the followings: 'both', 'plot', 'stdout' or 'off'")
 
-        # 損失のグラフをリアルタイムで
+        # Graph of loss
         if self._plot:
             self.fig, self.ax, self.secax = self.init_plot()
             plt.ion()
 
-        # 損失がself.tol以上改善しなければ学習を打ち切る
+        # Early Stopping
         self.best_loss = np.inf
         if self._validate:
             self.best_val_loss = np.inf
 
-        # 学習開始時間を記録
+        # start time of training
         self._t0 = time.time()
-
+    
     def init_plot(self):
-        fig, ax = plt.subplots(constrained_layout=True)
-        
-        ax.set(xlabel="iterations", ylabel="loss")
-        secax = ax.secondary_xaxis(
-            'top',
-            functions=(self._iter_to_epoch, self._epoch_to_iter)
-        )
-        
-        secax.xaxis.set_major_locator(ticker.AutoLocator())
-        secax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
-        secax.set_xlabel('epochs')
-        
-        ax.set_xlim(left=0)
+        fig, ax = plt.subplots(constrained_layout=True)        
+        ax.set(xlabel='epochs', ylabel='loss')
+        ax.set_xlim(0, self.delta_epoch)
         ax.set_ylim(0, 1)
         ax.grid(axis='y', linestyle='--')
-
+        if hasattr(self.net, 'test'):
+            secax = ax.secondary_yaxis('right', functions=(self._to_percent, self._from_percent))
+            secax.set_ylabel('accuracy [%]')
+        else:
+            secax = None
+        
         return fig, ax, secax
 
-    def __call__(self) -> None:        
-        if self.iterations % self.delta_iter == 0:
-            # 現在のエポック
-            epoch = self.iterations // self._iter_per_epoch
-            # epoch内で何番目のiterationか
-            idx_iter = self.iterations % self._iter_per_epoch
-            # epoch内で何番目のパターンか
-            idx_sample = min(
-                (idx_iter + 1) * self.batch_size,
-                self.n_sample
-            )
-            
-            if isinstance(self.net, competitive_net):
-                if self._stdout:
-                    print('\r' + f'...Epoch {epoch}...', end='')
-                self.iterations += 1
-                return 
+    def _plot_every_epoch(self, logstr):            
+        if self.epoch % self.delta_epoch == 1:
+            self.ax.set_xlim(0, self.epoch + self.delta_epoch - 1)
+            if self._validate:
+                max_loss = max(self.loss + self.val_loss)
+            else:
+                max_loss = max(self.loss)
+            self.ax.set_ylim(0, max(max_loss, 1))
 
-            # log出力
-            T_mini = self.net[-1].z - self.net[-1].delta
-            self.loss.append(self.net.loss(None, T_mini))
-            self.count.append(self.iterations)
-            # 検証用データ(X_val, T_val)に対する損失を計算する
+        x = [self.epoch - 1, self.epoch]
+            
+        if self._validate:
+            self.ax.plot(x, self.val_loss[-2:], c=self.color2, label='validation loss')
+            if hasattr(self.net, 'test'):
+                self.ax.plot(self.val_accuracy, c=self.color2, linestyle='--', label='validation accuracy')
+                
+        self.ax.plot(x, self.loss[-2:], c=self.color, label='training loss')
+        self.ax.set_title(logstr, fontsize=10)
+
+        plt.show()
+        plt.pause(0.2)
+
+    def _plot_legend(self):
+        handles, labels = plt.gca().get_legend_handles_labels()
+        if self.val_accuracy:
+            order = [2, 0, 1]
+        else:
+            order = [1, 0]
+        plt.legend(
+            [handles[idx] for idx in order], [labels[idx] for idx in order],
+            bbox_to_anchor=(1, 0.85), loc='upper right', borderaxespad=1
+        )
+    
+    def __call__(self):
+        if isinstance(self.net, competitive_net):
+            self._call_impl_competitive()
+        else:
+            self._call_impl()
+
+    def _call_impl_competitive(self):
+        self.iterations += 1
+
+        if self.iterations % self._iter_per_epoch == 0:
+            self.epoch += 1
+            if self._stdout:
+                print('\r' + f'...Epoch {self.epoch}...', end='')
+    
+    def _call_impl(self):
+        T_mini = self.net[-1].z - self.net[-1].delta
+        self.accumulated_loss += self.net.loss(None, T_mini)
+        
+        # at the top of epoch
+        if ((self.iterations >= self._iter_per_epoch)
+            and (self.iterations % self._iter_per_epoch == 0)):
+            
+            self.epoch += 1
+            self.loss.append(self.accumulated_loss / self._iter_per_epoch)
+            self.accumulated_loss = 0
+
+            # loss for the validation set (X_val, T_val)
             if self._validate:
                 if self.net.dropout:
-                    # dropoutによる訓練中の場合は、検証用データに対する損失は一時的にdropoutをoffにする
+                    # if dropout is on, turn it off temporarily
                     self.net._set_training_flag(False)
+                    
                 self.val_loss.append(self.net.loss(self.X_val, self.T_val))
                 if hasattr(self.net, 'test'):
                     accuracy = self.net.test(self.X_val, self.T_val, False)
-                else:
-                    accuracy = 0 # 応急処理！早くどうにかする
-                self.val_accuracy.append(accuracy)
+                    self.val_accuracy.append(accuracy)
+                
                 if self.net.dropout:
-                    # 訓練に影響を与えないようにもとに戻す
                     self.net._set_training_flag(True)
-            
-            logstr = f"Epoch {epoch:3}, Pattern {idx_sample:5}/{self.n_sample}: Loss={self.loss[-1]:.3e}"
+
+            # log output
+            logstr = f"Epoch {self.epoch}: Loss={self.loss[-1]:.3e}"
             if self._validate:
-                logstr += f" (training), {self.val_loss[-1]:.3e} (validation), Accuracy={self.val_accuracy[-1]*100:.2f}%"
+                logstr += f" (training), {self.val_loss[-1]:.3e} (validation)"
+                if self.val_accuracy:
+                    logstr += f", Accuracy={self.val_accuracy[-1]*100:.2f}%"
             
             if self._stdout:
                 print(logstr)
 
             if self._plot:
-                self.ax.set_xlim(0, (int(np.ceil((epoch+1e-4)/self.delta_epoch))*self.delta_epoch) * self._iter_per_epoch)
-                if len(self.loss) == 2:
-                    ymax = 1 if self.loss[1] < 2 else self.loss[1]
-                    self.ax.set_ylim(0, ymax)
-                
-                if self._validate:
-                    self.ax.plot(self.count[-2:], self.val_loss[-2:], c=self.color2)
-                    if self.marker and (len(self.count) >= 2):
-                        marker = '^' if self.val_loss[-2] < self.val_loss[-1] else 'v'
-                        self.ax.scatter(self.count[-1:], self.val_loss[-1:],
-                                        marker=marker, fc=self.color2, ec='k')
-                    self.ax.plot(self.count[-2:], self.val_accuracy[-2:],
-                                 c=self.color2, linestyle='--')
+                if self.epoch >= 1:    
+                    self._plot_every_epoch(logstr)
+                if self.epoch == 1:
+                    self._plot_legend()
 
-                self.ax.plot(self.count[-2:], self.loss[-2:], c=self.color)
-                self.ax.set_title(logstr, fontsize=10)
-
-                plt.show()
-                plt.pause(0.1)
-
-            # 早期終了など
-            last_loss = self.avrg_last_epoch(self.loss)
-            
+            # Early Stopping
+            last_loss = self.loss[-1]            
             if self._validate:
-                last_val_loss = self.avrg_last_epoch(self.val_loss)
+                last_val_loss = self.val_loss[-1]
                 # 検証用データに対する損失に一定以上の改善が見られない場合
                 if last_val_loss > (self.best_val_loss - self.tol):
-                    self._no_improvement_iter += self.delta_iter
+                    self._no_improvement_epoch += 1
                 else:
-                    self._no_improvement_iter = 0
+                    self._no_improvement_epoch = 0
                 # 現時点までの暫定最適値を更新(検証用データ) 
                 if last_val_loss < self.best_val_loss:
-                    self.best_val_loss = self.val_loss[-1]
+                    self.best_val_loss = last_val_loss
                     self.best_params_val = self.net.get_params()
                     
             else:
                 # 訓練データに対する損失に一定以上の改善が見られない場合
                 if last_loss > (self.best_loss - self.tol):
-                    self._no_improvement_iter += self.delta_iter
+                    self._no_improvement_epoch += 1
                 else:
-                    self._no_improvement_iter = 0
+                    self._no_improvement_epoch = 0
             
             # 現時点までの暫定最適値を更新(訓練データ)
             if last_loss < self.best_loss:
                 self.best_loss = last_loss
                 self.best_params = self.net.get_params()
 
-            _no_improvement_epoch = self._no_improvement_iter / self._iter_per_epoch
-            if _no_improvement_epoch > self.patience_epoch:
-                self.should_stop_iter = self.iterations
+            if self._no_improvement_epoch > self.patience_epoch:
                 which = 'Validation' if self._validate else 'Training'
                 no_improvement_msg = (
                     f"{which} loss did not improve more than "
                     f"tol={self.tol} for the last {self.patience_epoch} epochs"
-                    f" ({self.should_stop_iter} iterations &"
-                    f" {self.should_stop_iter / self._iter_per_epoch:.1f} epochs so far)."
+                    f" {self.epoch} epochs so far)."
                 )
-                if self.early_stopping:
-                    self.stop_params_val = self.net.get_params()
-                    raise NoImprovement(no_improvement_msg)
                 self.stop_params = self.net.get_params()
+                if self.early_stopping:
+                    raise NoImprovement(no_improvement_msg)
+
                 warnings.warn(no_improvement_msg)
 
         self.iterations += 1
-
-    def avrg_last_epoch(self, loss_list):
-        """直近1エポックでの損失の平均."""
-        last_epoch = loss_list[-int(self._iter_per_epoch / self.delta_iter + 0.5):]
-        avrg_loss = np.mean(last_epoch)
-        return avrg_loss
         
     def end(self) -> None:
         # record time elapsed
@@ -1487,24 +1490,22 @@ class logger:
                 n_param += layer.W.size + layer.b.size
             self.AIC = 2 * nll + 2 * n_param
             self.BIC = 2 * nll + n_param * np.log(self.n_sample)
-            
     
-    def show(self, color='tab:blue', color2='tab:orange', *args, **kwargs):
-        """学習終了後にプロット(なぜかlinesが表示されない。原因不明)
+    def plot(self, color='tab:blue', color2='tab:orange', *args, **kwargs):
+        """学習のあと、グラフをふたたび表示
         """
         fig, ax, secax = self.init_plot()
-        ax.plot(self.count, self.loss, color=color, *args, **kwargs)
+        
         if self.val_loss:
-            ax.plot(self.count, self.val_loss, color=color2, *args, **kwargs)
+            ax.plot(self.val_loss, color=color2, label='valid.loss', *args, **kwargs)
+            ax.plot(self.val_accuracy, c=self.color2, linestyle='--', label='valid.accuracy')
+
+        ax.plot(self.loss, color=color, label='train.loss', *args, **kwargs)
+        
+        self._plot_legend()
         return fig, ax, secax
 
-    def _iter_to_epoch(self, iterations):
-        return iterations/self._iter_per_epoch
-
-    def _epoch_to_iter(self, epochs):
-        return epochs*self._iter_per_epoch
-
-    # __________pickle__________
+    # __________________________ for pickle _________________________
     def __getstate__(self):
         state = self.__dict__.copy()
         state.pop('fig', None)
@@ -1516,93 +1517,11 @@ class logger:
         utils.save(self, filename)
 
 
-def numerical_gradient(func, x, dx=1e-7):
-    """Numerically compute the gradient of given function with central difference.
-
-    This code was originally written by Koki SAITO
-    (https://github.com/oreilly-japan/deep-learning-from-scratch/blob/89eadd0804af4de07e13fc6a478d591124f89312/common/gradient.py#L34-L52)
-    and slightly editted by Ryota USHIO.
-
-    Parameters
-    ----------
-    func : Callable
-        The function to be differentiated.
-    x : float or np.ndarray
-        The point that ``func`` is differentiated at.
-    dx : float
-    """
-    f = func
-    h = dx
-    grad = np.zeros_like(x)
+    # ________________________ for init_plot() _______________________
+    @classmethod
+    def _to_percent(cls, x):
+        return 100 * x
     
-    it = np.nditer(x, flags=['multi_index'], op_flags=['readwrite'])
-    while not it.finished:
-        idx = it.multi_index
-        tmp_val = x[idx]
-        x[idx] = tmp_val + h
-        fxh1 = f(x) # f(x+h)
-        
-        x[idx] = tmp_val - h 
-        fxh2 = f(x) # f(x-h)
-        grad[idx] = (fxh1 - fxh2) / (2*h)
-        
-        x[idx] = tmp_val # 値を元に戻す
-        it.iternext()   
-        
-    return grad
-
-def _numerical_loss_grad(net, layer, X, T, dW=1e-7, db=1e-7):
-    """Numerically computes gradient of the given MLP's loss function 
-    with respect to parameters of the specified layer.
-
-    Note that outputs which correspond current parameters have already computed 
-    by forward propagation.
-
-    Parameters
-    ----------
-    net : mlp
-    layer : int
-    X : array of shape (n_sample, n_feature)
-    T : array of shape (n_sample, n_target)
-    """
-    return (numerical_gradient(lambda W: net.loss(X, T), net[layer].W, dW),
-            numerical_gradient(lambda b: net.loss(X, T), net[layer].b, db))
-
-def numerical_loss_grad(net, X, T, dW=1e-9, db=1e-9):
-    """Numerically computes gradient of the given MLP's loss function 
-    with respect to parameters of all the layers.
-    """
-    dJdW = [None for _ in range(len(net))]
-    dJdb = [None for _ in range(len(net))]
-    for layer in range(1, len(net)):
-        dJdW_l, dJdb_l = _numerical_loss_grad(net, layer, X, T, dW, db)
-        dJdW[layer] = dJdW_l
-        dJdb[layer] = dJdb_l
-    return dJdW, dJdb
-
-    
-def backprop_loss_grad(net, X, T):
-    """Computes gradient of the given MLP's loss function with respect to parameters
-    of the specified layer BY BACK-PROP.
-    """
-    net.forward_prop(X)
-    net.back_prop(T)
-    net.set_gradient()
-    return [l.dJdW for l in net], [l.dJdb for l in net]
-
-    
-def gradient_check(net, X, T):
-    """A gradient checker for MLP.
-
-    Certify that the implementation of back-propation is correct by comparing 
-    the results of gradient computation obtained by two different methods
-    (numerical differentiation and back-prop), 
-    """
-    dJdW_bp, dJdb_bp = backprop_loss_grad(net, X, T)
-    dJdW_nd, dJdb_nd = numerical_loss_grad(net, X, T)
-
-    for l in range(1, len(net)):
-        print(dJdW_bp[l].shape, dJdW_nd[l].shape)
-        print(dJdb_bp[l].shape, dJdb_nd[l].shape)
-        print(f"layer{l} weight : {np.average(np.abs(dJdW_bp[l] - dJdW_nd[l]))}, {dJdW_bp[l] / dJdW_nd[l]}")
-        print(f"layer{l} bias   : {np.average(np.abs(dJdb_bp[l].reshape(1,-1) - dJdb_nd[l]))}, {dJdb_bp[l] / dJdb_nd[l]}")
+    @classmethod
+    def _from_percent(cls, x):
+        return 0.01 * x
