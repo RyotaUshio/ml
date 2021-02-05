@@ -5,7 +5,8 @@ import numpy as np
 (X_train, T_train), (X_test, T_test) = utils.load_data('mnist')
 
 net = nn.mlp_classifier.from_shape(
-    [784, 500, 200, 10] , dropout_ratio=[0.1, 0.4, 0.4], inverted=True
+    [784, 200, 50, 10], hidden_act='LeakyReLU',
+    dropout_ratio=[0.1, 0.15, 0.1], inverted=True
 )
 net.train(
     X_train=X_train, T_train=T_train,

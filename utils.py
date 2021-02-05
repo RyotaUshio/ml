@@ -45,14 +45,47 @@ def load_data(
 
 ## データセットの整形用の諸関数
 
+def label_rep(T : np.ndarray):
+    if _is_one_of_K(T):
+        return 'one of K'
+    elif _is_digit(T):
+        return 'digit'
+    else:
+        raise ValueError(
+            "A label must be a digit or a 1-of-K encoded vector."
+        )
+
+def is_one_of_K(T):
+    return label_rep(T) == 'one of K'
+
+def is_digit(T):
+    return label_rep(T) == 'digit'
+
+def _is_one_of_K(T):
+    if T.ndim != 2:
+        return False
+    return (np.all((T == 0) | (T == 1)) and np.all(np.sum(T, axis=1) == 1))
+
+def _is_digit(T):
+    return T.size == T.shape[0]
+
 def one_of_K(labels:Sequence[int], n_target=None):
     """
     正解ラベルの集合labelsを1 of K符号化法によりベクトル化する
     """
+    if is_one_of_K(labels):
+        return labels
+    
     if n_target is None:
         n_target = len(np.unique(labels))
     I = np.identity(n_target)
     return I[labels]
+
+def digit(labels):
+    if is_digit(labels):
+        return labels
+
+    return vec2digit(labels)
 
 def vec2label(one_of_K:Sequence):
     """1 of K符号化されたベクトルone_of_Kをクラス番号に変換する"""
@@ -110,8 +143,6 @@ def vec2img(vec, shape=None):
     return vec.reshape(shape)
 
 
-## 分類器の出力を整形する
-
 def prob2label(x):
     labels = np.argmax(x, axis=1)
     return labels
@@ -121,8 +152,6 @@ def prob2one_of_K(x):
     mask = (x >= maximum)
     return np.ones(x.shape) * mask
 
-def is_one_of_K(T):
-    return (np.all((T == 0) | (T == 1)) and np.all(np.sum(T, axis=1) == 1))
 
 def check_twodim(a:np.ndarray=None):
     """Make sure an array is two-dimensinal.
@@ -150,17 +179,6 @@ def load(filename):
     with open(filename, 'rb') as f:
         return pickle.load(f)
 
-
-def label_rep(T : np.ndarray):
-    if is_one_of_K(T):
-        return 'one of K'
-    elif T.size == T.shape[0]:
-        return 'digit'
-    else:
-        raise ValueError(
-            "Label must be a digit or a 1-of-K encoded vector."
-        )
-
     
 def estimate_params(
         X : np.ndarray, T : np.ndarray,
@@ -181,23 +199,12 @@ def estimate_params(
     means, covs, priors : np.ndarray
         Arrays that contain computed parameter of each class.
     """
-    _label_rep = label_rep(T)
     n_sample = len(T)
-
-    unq, idx = np.unique(T, axis=0, return_inverse=True)
-    sortidx = np.argsort(idx)
-    idx = idx[sortidx]
-    X = X[sortidx]
-    T = T[sortidx]
-    
     means = []
     covs = []
     priors = []
-    
-    for i in range(len(unq)):
-        ith = i if _label_rep == 'digit' else len(unq)-i-1
-        class_i = X[idx == ith]
 
+    for class_i in class_iter(X, T):
         if mean:
             mean_i = np.mean(class_i, axis=0)
             means.append(mean_i)
@@ -208,3 +215,93 @@ def estimate_params(
             priors.append(len(class_i) / n_sample)
         
     return np.array(means), np.array(covs), np.array(priors)
+
+
+def scatter(X, T=None, *, fig=None, ax=None, **kwargs):
+    dim = X.shape[1]
+    if dim not in [2, 3]:
+        raise ValueError(f"Can't make a scatter plot of {dim}-dimensional data.")
+    
+    if ax is None:
+        if fig is None:
+            fig = plt.figure()
+        projection = None
+        if dim == 3:
+            projection = '3d'
+        ax = fig.add_subplot(111, projection=projection)
+
+    if T is None:
+        ax.scatter(*X.T, **kwargs)
+    
+    else:
+        for class_i in class_iter(X, T):
+            ax.scatter(*class_i.T, **kwargs)
+
+            
+
+def strip_zero(X):
+    """Remove columns whose elements are all zero.
+    """
+    col = []
+    for i in range(X.shape[1]):
+        if not np.all(np.isclose(X[:, i], 0)):
+            col.append(i)
+    return X[:, col]
+
+            
+
+class class_iter:
+    def __init__(self, X, T):
+        T = digit(T)
+        unq, idx = np.unique(T, axis=0, return_inverse=True)
+        sortidx = np.argsort(idx)
+        self.idx = idx[sortidx]
+        self.X = X[sortidx]
+        self.T = T[sortidx]
+        self.n_class = len(unq)
+        self.i = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.i >= self.n_class:
+            raise StopIteration
+
+        class_i = self.X[self.idx == self.i]
+        self.i += 1
+        return class_i
+
+
+
+    
+class minibatch_iter:
+    def __init__(self, X: np.ndarray, T: np.ndarray, batch_size: int, shuffle: bool=True, check_twodim=False):
+        if len(X) != len(T):
+            raise ValueError("'X' and 'T' must have the same length.")
+        if check_twodim:
+            X = utils.check_twodim(X)
+            T = utils.check_twodim(T)
+        self.n_sample = len(X)
+        self.batch_size = batch_size
+        if shuffle:
+            shuffle_idx = np.random.permutation(self.n_sample)
+            self.X = X[shuffle_idx]
+            self.T = T[shuffle_idx]
+        else:
+            # shuffle=Falseはあくまでshuffleの必要性を見るためのもので, 推奨されない.
+            # shuffle=Falseとすると、学習中の損失の推移を表すグラフが異様に滑らかになる. 
+            self.X = X
+            self.T = T
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if len(self.X) <= 0:
+            raise StopIteration
+        X_mini = self.X[:self.batch_size]
+        T_mini = self.T[:self.batch_size]
+        self.X = self.X[self.batch_size:]
+        self.T = self.T[self.batch_size:]
+        return X_mini, T_mini

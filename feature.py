@@ -1,11 +1,13 @@
-"""Feature Extraction Processors."""
+"""Feature Extraction & Dimensionality Reduction"""
 
 import numpy as np
+import scipy.linalg
 import dataclasses
-from typing import Type, Sequence, List, Callable
+from typing import Sequence
 
 import nn
 import utils
+
 
 
 
@@ -16,28 +18,106 @@ class transformer:
     def transform(self):
         pass
 
+    def __getitem__(self, key):
+        return self.X_trans[key]
 
+
+    
 class linear_transformer(transformer):
-    def __init__(self, X, basis=None, ctrb=None):
+    def __init__(self, X, basis=None):
         super().__init__(X)
         self.basis = basis
-        self.ctrb = ctrb
+        self.transform()
 
     def transform(self):
-        if self.basis is not None:
-            self.X_trans = project(self.X, self.basis)
-
-
-class PCA(linear_transformer):
-    def __init__(self, X):
-        basis, ctrb = pca(X)
-        super().__init__(X, basis, ctrb)
+        if self.basis is None:
+            raise Exception("`basis` is not yet set.")
+        self.X_trans = np.matmul(self.X, self.basis.T)
 
         
-class LDA(linear_transformer):
+
+class eigen_transformer(linear_transformer):
+    def __init__(self, X, *args, **kwargs):
+        eigvals, eigvecs = self.eigen(X, *args, **kwargs)
+        
+        # sort eigenvalues & eigenvectors in a descending order of eigenvalues
+        idx = np.argsort(eigvals)[::-1]
+        eigvals = eigvals[idx]
+        eigvecs = eigvecs[idx]
+        
+        self.eigvals = eigvals
+            
+        super().__init__(X, eigvecs)
+
+    @staticmethod
+    def eigen(X):
+        """Solve some sort of eigenvalue problem.
+
+        Returns
+        -------
+        eigvals, eigvecs
+            `eigvecs` is an array whose rows represent eigenvectors.
+        """
+        raise NotImplementedError
+
+    def reduce(self, dim : int):
+        dim_max = self[:].shape[1]
+        if dim > dim_max:
+            raise ValueError(f"`dim` must be `dim < {dim_max}`.")
+        return self[:, :dim]
+
+        
+
+class pca(eigen_transformer):
     def __init__(self, X):
-        basis, ctrb = lda(X)
-        super().__init__(X, basis, ctrb)
+        super().__init__(X)
+        
+        # contributon ratio
+        self.ctrb = self.eigvals / np.sum(self.eigvals)
+        
+        # cumulative contribution ratio
+        self.cumul_ctrb = self.ctrb.copy()
+        for i in range(1, len(self.ctrb)):
+            self.cumul_ctrb[i] += self.cumul_ctrb[i-1]
+            
+    @staticmethod
+    def eigen(X):
+        sigma = np.cov(X, rowvar=False)             # 分散共分散行列
+        eigvals, eigvecs = scipy.linalg.eigh(sigma) # 固有値・固有ベクトル
+        # np.linalg.eigは固有ベクトルを列とするarrayを返すので、転置をとる.
+        return eigvals, eigvecs.T
+        
+
+
+class whiten(pca):
+    def transform(self):
+        super().transform()
+        np.matmul(self.X_trans, np.diag(np.power(self.eigvals, -1/2)), out=self.X_trans)
+    
+        
+class lda(eigen_transformer):
+    def __init__(self, X, T):
+        super().__init__(X, T)
+        n_class = len(np.unique(T, axis=0))
+        n_feature = X.shape[1]
+        n_positive_eigval = min(n_class - 1, n_feature)
+        self.X_trans = self.X_trans[:, :n_positive_eigval]
+        
+    @staticmethod
+    def eigen(X, T):
+        cov_within, cov_between = lda.within_between_cov(X, T)
+        eigvals, eigvecs = scipy.linalg.eigh(a=cov_between, b=cov_within)
+        return eigvals, eigvecs.T
+        
+    @staticmethod
+    def within_between_cov(X, T):
+        _, covs, ratio = utils.estimate_params(X, T, mean=False)
+        cov_all = np.cov(X, rowvar=False)
+        cov_within = np.average(covs, axis=0, weights=ratio)
+        cov_between = cov_all - cov_within
+        return cov_within, cov_between
+        
+        
         
 
 
@@ -94,10 +174,20 @@ class _autoencoder_base(nn.mlp):
 class autoencoder(_autoencoder_base):
     """Autoencoder.
 
+    Attributes
+    ----------
+    simple_aes : list of autoencoders
+        The simple autoencoders used in training. A simple autoencoder refers to an autoencoder 
+        which has 1 hidden layer.
+
     Examples
     --------
     >>> (X_train, T_train), (X_test, T_test) = utils.load_data()
-    >>> ae = ft.autoencoder.fit(X_train[10000:], [128, 64, 32], encode_act='ReLU', decode_act=['sigmoid', 'ReLU', 'ReLU'], X_val=X_train[:10000])
+    >>> ae = ft.autoencoder.fit(
+    ...     X_train[10000:], [128, 64, 32], 
+    ...     encode_act='ReLU', decode_act=['sigmoid', 'ReLU', 'ReLU'], 
+    ...     X_val=X_train[:10000]
+    ... )
     ...
     >>> output = ae(X_train)
     >>> utils.imshow(output[0])
@@ -162,60 +252,3 @@ class autoencoder(_autoencoder_base):
             layers = [net[0]] + layers
 
             return cls(layers=layers, loss=net.loss, simple_aes=simple_aes)
-  
-
-    
-
-def project(X, basis):
-    r"""与えられたデータ集合を、与えられた基底に射影して変換する。
-
-    Parameters
-    ----------
-    X : array_like
-        データを行として並べた行列
-    basis : array_like
-        基底を行として並べた行列
-
-    Returns
-    -------
-    np.ndarray
-        射影後のデータを行として並べた行列
-    """
-    X_projected = np.matmul(X, basis.T)
-    if np.all(np.imag(X_projected) == 0):
-        return X_projected.astype(float)
-    return X_projected
-
-
-
-def pca(X):
-    r"""主成分分析を行う.
-
-    Parameters
-    ----------
-    X : array_like
-        データを行として並べた行列
-
-    Returns
-    -------
-    eigvecs : np.ndarray
-        分散共分散行列の固有ベクトルを行として並べた行列. 寄与率の大きい順にソートされている.
-    ctrb : np.ndarray
-        各固有ベクトルの寄与率を、eigvecsに対応した順番で並べた配列."""
-    
-    sigma = np.cov(X, rowvar=False) # 分散共分散行列
-    eigvals, eigvecs = np.linalg.eig(sigma) # 固有値・固有ベクトル
-    # np.linalg.eigは固有ベクトルを列とするarrayを返すので、転置をとる.
-    eigvecs = eigvecs.T
-    
-    # 固有値の大きい順に固有値と固有ベクトルをソートする
-    idx = np.flip(np.argsort(eigvals))
-    eigvals = eigvals[idx]
-    eigvecs = eigvecs[idx]
-    
-    ctrb = eigvals / eigvals.sum()  # 各固有ベクトルの寄与率
-    
-    return eigvecs, ctrb
-
-
-    

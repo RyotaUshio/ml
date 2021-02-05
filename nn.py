@@ -11,10 +11,9 @@ import warnings
 import pickle
 import copy
 
-# from . 
-# from .
 import base
 import utils
+from exceptions import NoImprovement
 
 
 
@@ -535,19 +534,6 @@ class mlp(base._estimator_base):
         self.forward_prop(x)
         return self[-1].z.copy()
 
-    def predict_label(self, x, label_dict:dict=None):
-        """Return the predicted class labels, not inferior probability of each class.
-        """
-        labels = utils.prob2label( self(x) )
-        if label_dict:
-            return np.array([label_dict[label] for label in labels], dtype=object)
-        return labels
-
-    def predict_one_of_K(self, x):
-        """Return the predicted class labels expressed in 1-of-K encoding.
-        """
-        return utils.prob2one_of_K( self(x) )
-
     def forward_prop(self, x : np.ndarray) -> None:
         """Forward propagation computation.
         
@@ -557,7 +543,7 @@ class mlp(base._estimator_base):
             An input signal of the network.
         """
         self[0].set_input(x)
-        return self[-1].prop_z()
+        self[-1].prop_z()
             
     def back_prop(self, t : np.ndarray) -> None:
         """Compute errors in each layer with backpropagation.
@@ -585,7 +571,8 @@ class mlp(base._estimator_base):
             optimizer='AdaGrad',
             max_epoch:int=100,
             batch_size=200,
-            lamb=0.0001, 
+            lamb=0.0001,
+            use_log=True,
             **kwargs
     ) -> None:
         """
@@ -631,32 +618,25 @@ class mlp(base._estimator_base):
         
         try:            
             for epoch in range(max_epoch):
-                for X_mini, T_mini in minibatch_iter(X_train, T_train, batch_size):
-                    self.forward_prop(X_mini)    # 順伝播
-                    self.back_prop(T_mini)       # 逆伝播
-                    self.set_gradient()          # パラメータに関する損失の勾配を求める
-                    optimizer.update()           # 勾配法による重み更新
-                    self.log()                   # ログ出力
+                for X_mini, T_mini in utils.minibatch_iter(X_train, T_train, batch_size):
+                    self.train_one_step(X_mini, T_mini, optimizer)
 
         except KeyboardInterrupt:
             warnings.warn('Training stopped by user.')
             
         except NoImprovement as e:
             print(e)
-            
+
         self.log.end()
         if self.dropout:
             self._set_training_flag(False)
 
-    def test(self,
-             X_test : np.ndarray,
-             T_test : np.ndarray,
-             log:bool=True,
-             verbose=False) -> float:
-        """
-        将来のアップデートでevaluatorクラスに移動するかも。
-        """
-        return 0.0
+    def train_one_step(self, X_mini, T_mini, optimizer):
+        self.forward_prop(X_mini)    # 順伝播
+        self.back_prop(T_mini)       # 逆伝播
+        self.set_gradient()          # パラメータに関する損失の勾配を求める
+        optimizer.update()           # 勾配法による重み更新
+        self.log()                   # ログ出力
     
     @classmethod
     def fit(
@@ -748,24 +728,11 @@ class ensemble_mlp(base._estimator_base):
         else:
             raise Exception("Both of '_hard' & '_soft' are set False. Something went wrong.")
 
-    def test(self, X_test, T_test, verbose=False):
-        # 多クラス分類問題の場合
-        predicted = utils.vec2label(self(X_test))
-        true      = utils.vec2label(T_test)
-        n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
-        n_sample = len(X_test)                             # 全サンプル数
-        accuracy = n_correct / n_sample                    # 正解率
-        
-        if verbose:
-            print(f"Accuracy: {accuracy * 100:.4f} %")
-                
-        return accuracy
-
 
     
 
 @dataclasses.dataclass
-class mlp_classifier(mlp):
+class mlp_classifier(mlp, base.classifier_mixin):
     """Classification with MLP: multi-layer perceptron.
 
     Parameters
@@ -869,42 +836,18 @@ class mlp_classifier(mlp):
             raise ValueError(f"'n_output' must be a positive integer, not {n_output}.")
         return out_act
 
-    def test(self,
-             X_test : np.ndarray,
-             T_test : np.ndarray,
-             log:bool=True,
-             verbose=False) -> float:
-        """Test the classifier and return the value of accuracy.
+    def predict_label(self, x):
+        threshold = None
+        if self.classification_type == 'binary':
+            out_act = self[-1].h
+            threshold = 0.5 * (out_act(np.inf) + out_act(-np.inf))
+        return self.prob2label(x, threshold)
 
-        将来のアップデートでevaluatorクラスに移動するかも。
-        """
-        # 多クラス分類問題
-        if self[-1].size > 1:
-            predicted = self.predict_label(X_test)
-            true      = utils.vec2label(T_test)
-        # 2クラス分類問題
-        else:
-            predicted = np.where(self(X_test) > 0.5, 1, 0)
-            true      = T_test
-        
-        n_correct = np.count_nonzero(predicted == true)    # 正解サンプル数
-        n_sample = len(X_test)                             # 全サンプル数
-        accuracy = n_correct / n_sample                    # 正解率
-        
-        if log:
-            if self.log is not None:
-                self.log.accuracy = accuracy
-            else:
-                warnings.warn("Can't write log because self.log is None.")
-        if verbose:
-            print(f"Accuracy: {accuracy * 100:.4f} %")
-                
-        return accuracy
-
+    
 
 
 @dataclasses.dataclass
-class mlp_regressor(mlp):
+class mlp_regressor(mlp, base.regressor_mixin):
     """Regression with MLP: multi-layer perceptron.
 
     Parameters
@@ -969,39 +912,7 @@ class mlp_regressor(mlp):
             hidden_act=hidden_act,
             loss=loss, sigmas=sigmas, *args, **kwargs
         )
-
-
             
-class minibatch_iter:
-    def __init__(self, X: np.ndarray, T: np.ndarray, batch_size: int, shuffle: bool=True, check_twodim=False):
-        if len(X) != len(T):
-            raise ValueError("'X' and 'T' must have the same length.")
-        if check_twodim:
-            X = utils.check_twodim(X)
-            T = utils.check_twodim(T)
-        self.n_sample = len(X)
-        self.batch_size = batch_size
-        if shuffle:
-            shuffle_idx = np.random.permutation(self.n_sample)
-            self.X = X[shuffle_idx]
-            self.T = T[shuffle_idx]
-        else:
-            # shuffle=Falseはあくまでshuffleの必要性を見るためのもので, 推奨されない.
-            # shuffle=Falseとすると、学習中の損失の推移を表すグラフが異様に滑らかになる. 
-            self.X = X
-            self.T = T
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if len(self.X) <= 0:
-            raise StopIteration
-        X_mini = self.X[:self.batch_size]
-        T_mini = self.T[:self.batch_size]
-        self.X = self.X[self.batch_size:]
-        self.T = self.T[self.batch_size:]
-        return X_mini, T_mini
         
             
         
@@ -1184,14 +1095,13 @@ class step(act_func):
     """Heaviside's step function.
     """
     def __post_init__(self):
-        # sigmoid(a*u)でa -> +inf とした極限だと思えば、交差エントロピーでいいのでは??
-        self.loss_type = cross_entropy
+        self.loss_type = mean_square # 便宜上
         
     def __call__(self, u):
         return np.maximum(np.sign(u), 0.0)
     
     def val2deriv(self, z):
-        return 0.0
+        return 1.0 # for simple perceptron
 
 
 @dataclasses.dataclass
@@ -1293,8 +1203,13 @@ class loss_func:
         x : 教師データの入力
         t : 教師データの出力
         """
-        raise NotImplementedError
+        if x is not None:
+            self.net.forward_prop(x)
+        return self._call_impl(t)
 
+    def _call_impl(self, t):
+        raise NotImplementedError
+            
     def error(self, t):
         """
         出力層の誤差delta = 出力層の内部ポテンシャルuによる微分
@@ -1314,9 +1229,7 @@ class loss_func:
 class mean_square(loss_func):
     """Mean-Square Error.
     """
-    def __call__(self, x, t):
-        if x is not None:
-            self.net.forward_prop(x)
+    def _call_impl(self, t):
         batch_size = len(t)
         SSE = 0.5 * np.linalg.norm(self.net[-1].z - t)**2
         return SSE / batch_size
@@ -1325,10 +1238,7 @@ class mean_square(loss_func):
 class cross_entropy(loss_func):
     """Cross entropy error for binary classification.
     """
-    def __call__(self, x, t):
-        if x is not None:
-            self.net.forward_prop(x)
-
+    def _call_impl(self, t):
         batch_size = len(t)
         z = self.net[-1].z
         return -(t * np.log(z) + (1.0 - t) * np.log(1 - z)).sum() / batch_size
@@ -1337,9 +1247,7 @@ class cross_entropy(loss_func):
 class mul_cross_entropy(cross_entropy):
     """Cross entropy error for multiclass classification.
     """
-    def __call__(self, x, t):
-        if x is not None:
-            self.net.forward_prop(x)
+    def _call_impl(self, t):
         batch_size = len(t)
         return -np.sum((t * np.log(self.net[-1].z + 1e-7))) / batch_size
 
@@ -1353,10 +1261,7 @@ LOSSES = {
 
 
 
-class NoImprovement(Exception):
-    """Raised when no progress is being made any more in training."""
-    pass
-
+from cluster import competitive_net
 
 
 @dataclasses.dataclass
@@ -1365,7 +1270,7 @@ class logger:
     """
     
     net : mlp                  = dataclasses.field(default=None, repr=False)
-    iterations : int           = 0
+    iterations : int           = dataclasses.field(init=False, default=0)
     loss: Sequence[float]      = dataclasses.field(default_factory=list)
     count: Sequence[int]       = dataclasses.field(default_factory=list)
     delta_iter: int            = None
@@ -1392,16 +1297,14 @@ class logger:
     should_stop_iter : int     = dataclasses.field(init=False, default=None)
     AIC : float                = dataclasses.field(init=False, default=None)
     BIC : float                = dataclasses.field(init=False, default=None)
-    accuracy: float            = None
     val_accuracy: float        = dataclasses.field(default_factory=list)
     time: float                = None
     optimizer: _optimizer_base = None
 
     def __post_init__(self):
+        
         # 検証用データ(X_val, T_val)に対する誤差も計算するかどうか
         if not((self.X_val is None) and (self.T_val is None)):
-            # self.X_val = utils.check_twodim(self.X_val) # 遅いのでコメントアウト
-            # self.T_val = utils.check_twodim(self.T_val)
             self._validate = True
         # 1エポックあたりiteration数
         self._iter_per_epoch = int(np.ceil(self.n_sample / self.batch_size))
@@ -1453,12 +1356,8 @@ class logger:
 
         return fig, ax, secax
 
-    def __call__(self) -> None:
+    def __call__(self) -> None:        
         if self.iterations % self.delta_iter == 0:
-            # log出力
-            T_mini = self.net[-1].z - self.net[-1].delta
-            self.loss.append(self.net.loss(None, T_mini))
-            self.count.append(self.iterations)
             # 現在のエポック
             epoch = self.iterations // self._iter_per_epoch
             # epoch内で何番目のiterationか
@@ -1468,13 +1367,28 @@ class logger:
                 (idx_iter + 1) * self.batch_size,
                 self.n_sample
             )
+            
+            if isinstance(self.net, competitive_net):
+                if self._stdout:
+                    print('\r' + f'...Epoch {epoch}...', end='')
+                self.iterations += 1
+                return 
+
+            # log出力
+            T_mini = self.net[-1].z - self.net[-1].delta
+            self.loss.append(self.net.loss(None, T_mini))
+            self.count.append(self.iterations)
             # 検証用データ(X_val, T_val)に対する損失を計算する
             if self._validate:
                 if self.net.dropout:
                     # dropoutによる訓練中の場合は、検証用データに対する損失は一時的にdropoutをoffにする
                     self.net._set_training_flag(False)
                 self.val_loss.append(self.net.loss(self.X_val, self.T_val))
-                self.val_accuracy.append(self.net.test(self.X_val, self.T_val, False))
+                if hasattr(self.net, 'test'):
+                    accuracy = self.net.test(self.X_val, self.T_val, False)
+                else:
+                    accuracy = 0 # 応急処理！早くどうにかする
+                self.val_accuracy.append(accuracy)
                 if self.net.dropout:
                     # 訓練に影響を与えないようにもとに戻す
                     self.net._set_training_flag(True)
