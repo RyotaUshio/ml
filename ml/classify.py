@@ -8,9 +8,7 @@ from typing import Sequence
 import dataclasses
 import warnings
 
-import utils
-import base
-import nn
+from . import utils, base, nn
 
 
 @dataclasses.dataclass(repr=False)

@@ -9,11 +9,8 @@ from typing import Sequence, List, Type
 import dataclasses
 import warnings
 
-import utils
-import base
-import nn
-import classify
-from exceptions import EmptyCluster
+from . import utils, base, nn, classify
+from .exceptions import EmptyCluster
 
 
 
@@ -88,6 +85,7 @@ class k_means(base._estimator_base, base.cluster_mixin):
                 
             except KeyboardInterrupt:
                 warnings.warn("Clustering stopped by user.")
+                break
 
         if verbose:
             print('\r' + f'Finished after {count} loops.')

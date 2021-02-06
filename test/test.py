@@ -1,10 +1,9 @@
-import nn
-import utils
 import numpy as np
+import ml
 
-(X_train, T_train), (X_test, T_test) = utils.load_data('mnist')
+(X_train, T_train), (X_test, T_test) = ml.load_data('mnist')
 
-net = nn.mlp_classifier.from_shape(
+net = ml.nn.mlp_classifier.from_shape(
     [784, 200, 50, 10], hidden_act='LeakyReLU',
     dropout_ratio=[0.1, 0.4, 0.25], inverted=True
 )

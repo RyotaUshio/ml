@@ -11,9 +11,8 @@ import warnings
 import pickle
 import copy
 
-import base
-import utils
-from exceptions import NoImprovement
+from . import base, utils
+from .exceptions import NoImprovement
 
 
 
@@ -1370,10 +1369,13 @@ class logger:
 
     def _plot_legend(self):
         handles, labels = plt.gca().get_legend_handles_labels()
-        if self.val_accuracy:
-            order = [2, 0, 1]
-        else:
+        order = [0]
+        if self._validate:
             order = [1, 0]
+            if hasattr(self, 'val_accuracy'):
+                if self.val_accuracy:
+                    order = [2, 0, 1]
+                    
         plt.legend(
             [handles[idx] for idx in order], [labels[idx] for idx in order],
             bbox_to_anchor=(1, 0.85), loc='upper right', borderaxespad=1
@@ -1512,3 +1514,4 @@ class logger:
     @classmethod
     def _from_percent(cls, x):
         return 0.01 * x
+

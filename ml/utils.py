@@ -280,8 +280,8 @@ class minibatch_iter:
         if len(X) != len(T):
             raise ValueError("'X' and 'T' must have the same length.")
         if check_twodim:
-            X = utils.check_twodim(X)
-            T = utils.check_twodim(T)
+            X = check_twodim(X)
+            T = check_twodim(T)
         self.n_sample = len(X)
         self.batch_size = batch_size
         if shuffle:

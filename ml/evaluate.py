@@ -7,12 +7,8 @@ import pandas as pd
 from typing import Type, Sequence, List, Callable
 import warnings
 
-# from . 
-# from .
-import base
-import utils
-import feature
-from exceptions import EmptyCluster
+from . import base, utils, feature
+from .exceptions import EmptyCluster
 
 
 def evaluate(estimator: Type[base._estimator_base], *args, type=None, **kwargs):

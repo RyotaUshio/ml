@@ -1,7 +1,8 @@
 import numpy as np
 import scipy.linalg
-from exceptions import EmptyCluster
-import utils
+
+from . import utils
+from .exceptions import EmptyCluster
 
 
 class _estimator_base:

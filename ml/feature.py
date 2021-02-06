@@ -5,8 +5,7 @@ import scipy.linalg
 import dataclasses
 from typing import Sequence
 
-import nn
-import utils
+from . import nn, utils
 
 
 
