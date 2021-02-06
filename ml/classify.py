@@ -14,7 +14,7 @@ from .nn import mlp_classifier
 
 @dataclasses.dataclass(repr=False)
 class k_nearest(base._estimator_base, base.classifier_mixin):
-    """Classification with the k-nearest neighbor algorithm.
+    """Classification with the k-nearest neighbors algorithm.
     """    
     X_train     : np.ndarray
     T_train     : np.ndarray
