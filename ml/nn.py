@@ -566,12 +566,11 @@ class mlp(base._estimator_base):
             self,
             X_train:np.ndarray,
             T_train:np.ndarray, *,
-            eta0:float=0.05,
-            optimizer='AdaGrad',
+            eta0:float=1e-2,
+            optimizer='Momentum',
             max_epoch:int=100,
             batch_size=200,
-            lamb=0.0001,
-            use_log=True,
+            lamb=1e-4,
             **kwargs
     ) -> None:
         """
@@ -1338,7 +1337,7 @@ class logger:
         ax.set_xlim(0, self.delta_epoch)
         ax.set_ylim(0, 1)
         ax.grid(axis='y', linestyle='--')
-        if hasattr(self.net, 'test'):
+        if self._validate and hasattr(self.net, 'test'):
             secax = ax.secondary_yaxis('right', functions=(self._to_percent, self._from_percent))
             secax.set_ylabel('accuracy [%]')
         else:
