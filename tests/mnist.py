@@ -2,23 +2,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from mpl_toolkits.axes_grid1 import Size, Divider
+import ml
 
 
-def hidden_test(net, j):
-    w = normalize(net[1].W[:, j])
-    y = np.argmax(net(w))
-    plt.imshow(w.reshape(28,28), cmap=plt.cm.binary)
-    plt.title(f'{y}?')
-    print(net(w))
-
-def last_test(net, j):
-    w = normalize(net[-1].W[:, j])
-    # y = np.argmax(net(w))
-    plt.imshow(w[2:-2].reshape(4,4), cmap=plt.cm.binary)
-    # plt.title(f'{y}?')
-    # print(net(w))
+def hidden_slideshow(net, dt=0.5):
+    weights = net[1].W.T
+    fig, ax = plt.subplots()
+    plt.ion()
+    for weight in weights:
+        ml.imshow(weight, ax=ax)
+        plt.pause(dt)
+        
     
-def hidden_show(net, figsize=(8-1/4, 11-3/4)):
+
+def hidden_image_and_bars(net, figsize=(8-1/4, 11-3/4)):
     size = figsize
     rect = (0.15, 0.15, 0.79, 0.79)
     pad_width = size[0]*.05/9.0 * rect[2]

@@ -131,24 +131,40 @@ def convert(inputs, labels, n_target, flatten=True):
     T = one_of_K(labels, n_target)
     return X, T
 
-def imshow(image, ax=None, shape=None):
-    """画像imageをaxに表示・可視化する. """
+def imshow(arr, *, fig=None, ax=None, shape=None, **kwargs):
+    """Interpret a 1-D or 2-D array as an image, and display it.
+    """
+    arr = np.array(arr)
+    ndim = arr.ndim
+    if ndim >= 3:
+        raise ValueError(f"Can't iterpret a {ndim}-D array as an image.")
+    elif ndim == 1:
+        if shape is not None:
+            if not (len(shape) == 2 and shape[0] * shape[1] == len(arr)):
+                raise ValueError("An invalid shape was passed.")
+        else:
+            sqrt = int(np.sqrt(len(arr)))
+            if sqrt**2 != len(arr):
+                raise ValueError(
+                    "Can't infer the shape of image"
+                    " because the array's size is not a square number."
+                )
+            shape = (sqrt, sqrt)
+    else:
+        shape = arr.shape
+
+    image = arr.reshape(shape)
+    
     if ax is None:
-        fig, ax = plt.subplots()
-    if image.ndim == 1:
-        image = vec2img(image, shape=shape)
-    ax.imshow(image, cmap=plt.cm.gray)
+        if fig is None:
+            fig = plt.figure()
+        ax = fig.add_subplot(111)
+
+    ax.imshow(image, cmap=plt.cm.gray, **kwargs)
     ax.xaxis.set_visible(False)
     ax.yaxis.set_visible(False)
 
-def vec2img(vec, shape=None):
-    """1次元の特徴ベクトルを2次元配列に戻す"""
-    if shape is None:
-        tmp = int(np.sqrt(vec.size))
-        shape = (tmp, tmp)
-    return vec.reshape(shape)
-
-
+    
 def prob2label(x):
     labels = np.argmax(x, axis=1)
     return labels
@@ -168,7 +184,7 @@ def check_twodim(a:np.ndarray=None):
     if a.ndim <= 1:
         return a.reshape((1, -1))
     elif a.ndim >= 3:
-        raise ValueError("A three dimensional array was passed.")
+        raise ValueError("A three or more dimensional array was passed.")
     return a
 
 
@@ -226,7 +242,7 @@ def estimate_params(
 def scatter(X, T=None, *, fig=None, ax=None, **kwargs):
     dim = X.shape[1]
     if dim not in [2, 3]:
-        raise ValueError(f"Can't make a scatter plot of {dim}-dimensional data.")
+        raise ValueError(f"Can't make a scatter plot of {dim}-D data.")
     
     if ax is None:
         if fig is None:

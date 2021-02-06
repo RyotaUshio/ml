@@ -1334,8 +1334,9 @@ class logger:
     def init_plot(self):
         fig, ax = plt.subplots(constrained_layout=True)        
         ax.set(xlabel='epochs', ylabel='loss')
-        ax.set_xlim(0, self.delta_epoch)
-        ax.set_ylim(0, 1)
+        if self.iterations == 0:
+            ax.set_xlim(0, self.delta_epoch)
+            ax.set_ylim(0, 1)
         ax.grid(axis='y', linestyle='--')
         if self._validate and hasattr(self.net, 'test'):
             secax = ax.secondary_yaxis('right', functions=(self._to_percent, self._from_percent))
@@ -1350,6 +1351,8 @@ class logger:
             self.ax.set_xlim(0, self.epoch + self.delta_epoch - 1)
             if self._validate:
                 max_loss = max(self.loss + self.val_loss)
+                if hasattr(self.net, 'test'):
+                    max_loss = 0
             else:
                 max_loss = max(self.loss)
             self.ax.set_ylim(0, max(max_loss, 1))
@@ -1454,7 +1457,7 @@ class logger:
                 no_improvement_msg = (
                     f"{which} loss did not improve more than "
                     f"tol={self.tol} for the last {self.patience_epoch} epochs"
-                    f" {self.epoch} epochs so far)."
+                    f" ({self.epoch} epochs so far)."
                 )
                 self.stop_params = self.net.get_params()
                 if self.early_stopping:
@@ -1494,6 +1497,7 @@ class logger:
             ax.plot(self.val_accuracy, c=self.color2, linestyle='--', label='valid.accuracy')
 
         ax.plot(self.loss, color=color, label='train.loss', *args, **kwargs)
+        ax.set_ylim(bottom=0)
         
         self._plot_legend()
         return fig, ax, secax

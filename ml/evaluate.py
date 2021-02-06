@@ -31,7 +31,7 @@ class _evaluator_base:
             if isinstance(v, pd.Series):
                 ret += f"{k} : \n{pd.DataFrame(v, columns=['']).T}\n"
             else:
-                ret += f"{k} : {v}\n"
+                ret += f"{k} : {v:.6f}\n"
         return ret.strip('\n')
 
     def __getitem__(self, key):
