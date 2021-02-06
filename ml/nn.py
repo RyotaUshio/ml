@@ -1292,6 +1292,7 @@ class logger:
     BIC : float                = dataclasses.field(init=False, default=None)
     time: float                = None
     optimizer: _optimizer_base = None
+    callback : Callable        = dataclasses.field(default=None, repr=False)
 
     def __post_init__(self):
         self.accumulated_loss = 0
@@ -1362,7 +1363,7 @@ class logger:
                 self.ax.plot(self.val_accuracy, c=self.color2, linestyle='--', label='validation accuracy')
                 
         self.ax.plot(x, self.loss[-2:], c=self.color, label='training loss')
-        self.ax.set_title(logstr, fontsize=10)
+        self.ax.set_title(logstr, fontsize=8)
 
         plt.show()
         plt.pause(0.2)
@@ -1378,7 +1379,7 @@ class logger:
                     
         plt.legend(
             [handles[idx] for idx in order], [labels[idx] for idx in order],
-            bbox_to_anchor=(1, 0.85), loc='upper right', borderaxespad=1
+            bbox_to_anchor=(1, 0.5), loc='upper right', borderaxespad=1
         )
     
     def __call__(self):
@@ -1412,7 +1413,7 @@ class logger:
             if self._validate:
                 logstr += f" (training), {self.val_loss[-1]:.3e} (validation)"
                 if self.val_accuracy:
-                    logstr += f", Accuracy={self.val_accuracy[-1]*100:.2f}%"
+                    logstr += f", Accuracy={self.val_accuracy[-1]*100:.2f}% (validation)"
             
             if self._stdout:
                 print(logstr)
@@ -1462,6 +1463,10 @@ class logger:
 
                 warnings.warn(no_improvement_msg)
 
+            # callback
+            if self.callback is not None:
+                self.callback(self.net)
+
         self.iterations += 1
         
     def end(self) -> None:
@@ -1500,6 +1505,7 @@ class logger:
         state.pop('fig', None)
         state.pop('ax', None)
         state.pop('secax', None)
+        state.pop('callback', None)
         return state
 
     def save(self, filename):
