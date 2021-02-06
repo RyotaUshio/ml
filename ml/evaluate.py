@@ -30,8 +30,10 @@ class _evaluator_base:
         for k, v in self.measures.items():
             if isinstance(v, pd.Series):
                 ret += f"{k} : \n{pd.DataFrame(v, columns=['']).T}\n"
-            else:
+            elif isinstance(v, float):
                 ret += f"{k} : {v:.6f}\n"
+            else:
+                ret += f"{k} : {v}\n"
         return ret.strip('\n')
 
     def __getitem__(self, key):
