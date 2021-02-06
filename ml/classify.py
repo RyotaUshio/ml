@@ -9,6 +9,7 @@ import dataclasses
 import warnings
 
 from . import utils, base, nn
+from .nn import mlp_classifier
 
 
 @dataclasses.dataclass(repr=False)
@@ -173,19 +174,6 @@ class generative(base._estimator_base, base.classifier_mixin):
             
         return discriminant
 
-    def predict_label(self, x, cov_equal=False, cov_identity=False, prior_equal=False, label_dict : dict=None):
-        """mlpともかぶってるのでmixinを定義するべき。
-        Return the predicted class labels, not inferior probability of each class.
-        """
-        labels = utils.prob2label( self(x) )
-        if label_dict:
-            return np.array([label_dict[label] for label in labels], dtype=object)
-        return labels
-
-    def predict_one_of_K(self, x):
-        """Return the predicted class labels expressed in 1-of-K encoding.
-        """
-        return utils.prob2one_of_K( self(x) )
             
                              
         
@@ -225,4 +213,4 @@ class simple_perceptron(nn.mlp, base.classifier_mixin):
         )
 
     def predict_label(self, x):
-        return self.prob2label(x, threshold=0.5)
+        return super().predict_label(x, threshold=0.5)

@@ -13,10 +13,10 @@ class _estimator_base:
 class classifier_mixin:
     estimator_type = 'classifier'
 
-    def prob2label(self, x, threshold=None):
+    def predict_label(self, x, threshold=None, **kwargs):
         """Return the predicted class labels, not inferior probability of each class.
         """
-        output = self(x)
+        output = self(x, **kwargs)
         if self.classification_type == 'multi':
             labels = utils.prob2label(output)
         elif self.classification_type == 'binary':

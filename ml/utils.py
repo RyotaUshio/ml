@@ -1,7 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import keras.datasets as datasets
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', FutureWarning)
+    import keras.datasets as datasets # keras is only for datasets
 from typing import Sequence, List, Callable
 import pickle
 

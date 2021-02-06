@@ -41,9 +41,19 @@ class _evaluator_base:
         
         
 class classifier_evaluator(_evaluator_base):
+    def __repr__(self):
+        if self.kwargs:
+            repr_kwargs = 'kwargs : '
+            for k, v in self.kwargs.items():
+                repr_kwargs += f"{k}={v}, "
+            repr_kwargs = repr_kwargs[:-2]
+            return super().__repr__().replace('>\n', '>\n' + repr_kwargs + '\n')
+        return super().__repr__()
+    
     def eval(self, X, T, margins=True, **kwargs):
         self.conf = self.make_confusion_matrix(X, T, margins, **kwargs)
         self.measures = self.agg(self.conf)
+        self.kwargs = kwargs
 
     def make_confusion_matrix(self, X, T, margins=True, **kwargs):
         true = utils.digit(T)

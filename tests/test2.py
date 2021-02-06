@@ -17,7 +17,7 @@ evals['k_means'] = ml.evaluate(kmeans)
 clnet = ml.cluster.competitive_net(
     X_train_3d[:2000], k=10,
     optimizer='AdaGrad', eta0=1e-2, tol=1e-5,
-    max_epoch=50
+    max_epoch=10
 )
 evals['competitive_net'] = ml.evaluate(clnet)
 
@@ -29,11 +29,13 @@ pass
 
 # K-nearest neighbors
 knn = ml.classify.k_nearest(X_train_3d, T_train, k=5)
+print('k_nearest ', end='')
 knn.test(X_test_3d[:100], T_test[:100], verbose=True)
 evals['k_nearest'] = ml.evaluate(knn, X_test_3d[:1000], T_test[:1000])
 
 # Generative model
 gen = ml.classify.generative(X_train_3d, T_train)
+print('generative (no assumption of equality of the covariance matrices & prior probabilities) ', end='')
 gen.test(X_test_3d[:100], T_test[:100], verbose=True)
 evals['generative'] = ml.evaluate(
     gen, X_test_3d[:1000], T_test[:1000],

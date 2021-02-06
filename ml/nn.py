@@ -843,7 +843,7 @@ class mlp_classifier(mlp, base.classifier_mixin):
         if self.classification_type == 'binary':
             out_act = self[-1].h
             threshold = 0.5 * (out_act(np.inf) + out_act(-np.inf))
-        return self.prob2label(x, threshold)
+        return super().predict_label(x, threshold=threshold)
 
     
 
