@@ -1,5 +1,5 @@
 class EmptyCluster(Exception):
-    """Raised if there is at least 1 cluster that no patter belongs to.
+    """Raised if there is at least 1 cluster that no pattern belongs to.
     """
     pass
 
