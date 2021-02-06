@@ -46,6 +46,7 @@ class k_means(base._estimator_base, base.cluster_mixin):
         self.set_initial(delta)
         no_change_iter = 0
         centroid_labels = np.array(range(self.k))
+        self.labels = np.zeros(self.n_sample)
         count = 1
 
         if plot:
@@ -56,8 +57,15 @@ class k_means(base._estimator_base, base.cluster_mixin):
             try:
                 if verbose:
                     print('\r' + f'...Loop {count}...', end='')
+
+                # (can be interpreted as) the E step of the EM algorithm
                 knn = classify.k_nearest(self.centroids, centroid_labels, k=1)
-                self.labels = knn(self.X)
+                new_labels = knn(self.X)
+
+                # break if the assignments do not change
+                if np.sum(np.abs(new_labels - self.labels)) == 0:
+                    break
+                self.labels = new_labels
 
                 self.check_empty_cluster()
 
@@ -66,15 +74,8 @@ class k_means(base._estimator_base, base.cluster_mixin):
                     utils.scatter(self.X, self.labels, fig=fig)
                     plt.pause(0.8)
 
+                # (can be interpreted as) the M step of the EM algorithm
                 means, _, _ = utils.estimate_params(self.X, self.labels, cov=False, prior=False)
-
-                if np.all(scipy.linalg.norm(means - self.centroids, axis=1) < tol):
-                    no_change_iter += 1
-                else:
-                    no_change_iter = 0
-                if no_change_iter > patience_iter:
-                    break
-                
                 self.centroids = means
                 count += 1
 
