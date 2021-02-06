@@ -5,7 +5,7 @@ import warnings
 with warnings.catch_warnings():
     warnings.simplefilter('ignore', FutureWarning)
     import keras.datasets as datasets # keras is only for datasets
-    print("(Keras is used only for loading datasets.)")
+    print("(Only for loading datasets)")
 from typing import Sequence, List, Callable
 import pickle
 
