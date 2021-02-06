@@ -605,7 +605,7 @@ class mlp(base._estimator_base):
         # パラメータ更新器
         optimizer = OPTIMIZERS[optimizer](net=self, eta0=eta0, lamb=lamb)
         # 途中経過の記録
-        self.log = logger(
+        self.log = self.log_init(
             net=self,
             n_sample=len(X_train),
             batch_size=batch_size,
@@ -637,7 +637,10 @@ class mlp(base._estimator_base):
         self.set_gradient()          # パラメータに関する損失の勾配を求める
         optimizer.update()           # 勾配法による重み更新
         self.log()                   # ログ出力
-    
+
+    def log_init(self, **kwargs):
+        return logger(**kwargs)
+        
     @classmethod
     def fit(
             cls,
@@ -1261,8 +1264,6 @@ LOSSES = {
 
 
 
-from cluster import competitive_net
-
 
 @dataclasses.dataclass
 class logger:
@@ -1379,20 +1380,6 @@ class logger:
         )
     
     def __call__(self):
-        if isinstance(self.net, competitive_net):
-            self._call_impl_competitive()
-        else:
-            self._call_impl()
-
-    def _call_impl_competitive(self):
-        self.iterations += 1
-
-        if self.iterations % self._iter_per_epoch == 0:
-            self.epoch += 1
-            if self._stdout:
-                print('\r' + f'...Epoch {self.epoch}...', end='')
-    
-    def _call_impl(self):
         T_mini = self.net[-1].z - self.net[-1].delta
         self.accumulated_loss += self.net.loss(None, T_mini)
         

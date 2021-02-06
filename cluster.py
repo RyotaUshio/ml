@@ -121,6 +121,15 @@ class competitive_loss(nn.loss_func):
         pass
     def error(self, t):
         pass
+
+class competitive_logger(nn.logger):
+    def __call__(self):
+        self.iterations += 1
+
+        if self.iterations % self._iter_per_epoch == 0:
+            self.epoch += 1
+            if self._stdout:
+                print('\r' + f'...Epoch {self.epoch}...', end='')
         
 
 class competitive_net(nn.mlp, base.cluster_mixin):
@@ -181,9 +190,10 @@ class competitive_net(nn.mlp, base.cluster_mixin):
             )
         self[-1].W /= scipy.linalg.norm(self[-1].W, axis=0, keepdims=True)
 
+    def log_init(self, **kwargs):
+        return competitive_logger(**kwargs)
+
+
         
 class em(base._estimator_base, base.cluster_mixin):
     pass
-
-
-    

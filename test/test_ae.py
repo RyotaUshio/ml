@@ -9,7 +9,8 @@ ae = ft.autoencoder.fit(
     X_train, [128, 64, 32], 
     encode_act='ReLU', decode_act=['sigmoid', 'ReLU', 'ReLU'], 
     X_val=X_test,
-    optimizer='Momentum'
+    lamb=0.0001,eta0=0.0001, 
+    optimizer='Momentum', max_epoch=500
 )
 
 utils.imshow(ae(X_train[0]).ravel())
