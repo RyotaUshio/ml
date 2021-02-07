@@ -2,7 +2,7 @@
 """
 
 import numpy as np
-from scipy.stats import mode
+import scipy.stats
 import scipy.linalg
 import matplotlib.pyplot as plt
 from typing import Sequence, List, Type
@@ -10,7 +10,7 @@ import dataclasses
 import warnings
 
 from . import utils, base, nn, classify
-from .exceptions import EmptyCluster
+from .exceptions import EmptyCluster, NoImprovement
 
 
 
@@ -25,9 +25,9 @@ class k_means(base._estimator_base, base.cluster_mixin):
     centroids     : np.ndarray = dataclasses.field(init=False)
     labels        : np.ndarray = dataclasses.field(init=False)
 
-    def __post_init__(self, plot, tol, patience_iter, delta, verbose):
+    def __post_init__(self, plot, delta, verbose):
         self.n_sample = len(self.X)
-        self.__call__(plot=plot, tol=tol, patience_iter=patience_iter, delta=delta, verbose=verbose)
+        self.__call__(plot=plot, delta=delta, verbose=verbose)
     
     def __repr__(self):
         return f"<{self.__class__.__name__} (k={self.k}) with {self.n_sample} pieces of data>"
@@ -42,7 +42,6 @@ class k_means(base._estimator_base, base.cluster_mixin):
     ) -> None:
         
         self.set_initial(delta)
-        no_change_iter = 0
         centroid_labels = np.array(range(self.k))
         self.labels = np.zeros(self.n_sample)
         count = 1
@@ -91,7 +90,134 @@ class k_means(base._estimator_base, base.cluster_mixin):
 
             
 
+@dataclasses.dataclass(repr=False)
+class em(base._estimator_base, base.cluster_mixin):
+    X             : np.ndarray
+    k             : int
+    # used in convergence test
+    tol           : dataclasses.InitVar[float] = 0.1
+    patience_iter : dataclasses.InitVar[int] = 5
+    no_improvement_iter : int = dataclasses.field(init=False, default=0)
+    # used in initilization with K-means
+    delta         : dataclasses.InitVar[float] = 0.7
+    # whether to print current number of iterations
+    verbose       : dataclasses.InitVar[bool] = True
+    # Responsibilities : estimated in the E step
+    resps         : np.ndarray = dataclasses.field(init=False)
+    # Parameters of Gaussian mixture : estimated in the M step
+    means         : np.ndarray = dataclasses.field(init=False)
+    covs          : np.ndarray = dataclasses.field(init=False)
+    priors        : np.ndarray = dataclasses.field(init=False)
+    # result
+    labels        : np.ndarray = dataclasses.field(init=False)
+    centroids     : np.ndarray = dataclasses.field(init=False)
+    n_sample      : int = dataclasses.field(init=False)
+    
+    def __post_init__(self, tol, patience_iter, delta, verbose):
+        self.n_sample = len(self.X)
+        self.__call__(tol=tol, patience_iter=patience_iter, delta=delta, verbose=verbose)
+    
+    def __repr__(self):
+        return f"<{self.__class__.__name__} (k={self.k}) with {self.n_sample} pieces of data>"
 
+    def set_initial(self, delta):
+        kmeans = k_means(X=self.X, k=self.k, plot=False, delta=delta, verbose=False)
+        self.means, self.covs, self.priors = utils.estimate_params(X=self.X, T=kmeans.labels)
+        self.resps = np.zeros((self.n_sample, self.k))
+        self.joints = np.zeros((self.n_sample, self.k))
+        self.log_likelihood = -np.inf
+
+    def kth_gaussian(self, x, k):
+        return scipy.stats.multivariate_normal.pdf(
+            x,
+            mean=self.means[k],
+            cov=self.covs[k]
+        )
+
+    def E_step(self):
+        for n, x in enumerate(self.X):
+            gaussians = np.array([self.kth_gaussian(x, k) for k in range(self.k)])
+            nth_joints = self.priors * gaussians
+            self.joints[n] = nth_joints
+            resp = nth_joints / nth_joints.sum()
+            self.resps[n] = resp
+
+    def M_step(self):
+        for k in range(self.k):
+            kth_resps = self.resps[:, k]
+            self.means[k] = np.average(self.X, weights=kth_resps, axis=0)
+            self.covs[k] = np.average(
+                [np.outer(row, row) for row in self.X - self.means[k]],
+                weights=kth_resps,
+                axis=0
+            )
+        Nk = np.sum(self.resps, axis=0)
+        self.prior = Nk / self.n_sample
+
+    def update_log_likelihood(self):
+        new_log_likelihood = np.sum(
+            np.log(np.sum(self.joints, axis=1))
+        )
+
+        if new_log_likelihood < self.log_likelihood + self.tol:
+            self.no_improvement_iter += 1
+        else:
+            self.no_improvement_iter = 0
+
+        if self.no_improvement_iter > self.patience_iter:
+            raise NoImprovement(
+                f"Log likelihood did not improved more than {self.tol} "
+                f"for the last {self.patience_iter} iterations."
+            )
+        
+        self.log_likelihood = new_log_likelihood
+
+    def __call__(
+            self,
+            tol: float=1e-2,
+            patience_iter: int=5,
+            delta: float=0.7,
+            verbose: bool=True
+    ) -> None:
+        self.set_initial(delta)
+        self.tol = tol
+        self.patience_iter = patience_iter
+        count = 0
+
+        while True:
+            count += 1
+            if verbose:
+                print('\r' + f'...Loop {count}...', end='')
+
+            self.E_step()
+            self.M_step()
+            
+            try:
+                self.update_log_likelihood()
+                if verbose:
+                    print(f' Log likelihood = {self.log_likelihood}', end='')
+                
+            except NoImprovement as e:
+                print(e)
+                break
+            
+            except KeyboardInterrupt:
+                warnings.warn("Clustering stopped by user.")
+                break
+
+        self.centroids = self.means
+        self.labels = np.argmax(self.resps, axis=1)
+
+        try:
+            self.check_empty_cluster()
+        except EmptyCluster as e:
+            warnings.warn(f'{e}')
+
+        if verbose:
+            print('\r' + f'Finished after {count} loops.')
+
+
+    
 class mean_shift(base._estimator_base, base.cluster_mixin):
     pass
 
@@ -190,11 +316,7 @@ class competitive_net(nn.mlp, base.cluster_mixin):
     def log_init(self, **kwargs):
         return competitive_logger(**kwargs)
 
-
-        
-class em(base._estimator_base, base.cluster_mixin):
-    pass
-
+    
 
 @dataclasses.dataclass(repr=False)
 class as_cluster(base.cluster_mixin):
