@@ -13,5 +13,6 @@ ae = ml.feature.autoencoder.fit(
     optimizer='Momentum', max_epoch=500
 )
 
-ml.imshow(ae(X_train[0]).ravel())
-ml.imshow(ae(X_test[0]).ravel())
+# ae.save('pkl/ae')
+ml.imshow(ae(X_train[0]).flatten())
+ml.imshow(ae(X_test[0]).flatten())

@@ -21,5 +21,5 @@ net.train(
 )
 
 net.save(
-    os.path.abspath(ml.__path__[0]) + f'/../pkl/hidden_shape_' + '_'.join(sys.argv[1:]) + '_online_sigmoid'
+    os.path.abspath(ml.__path__[0]) + f'/../pkl/hidden_shape_' + '_'.join(sys.argv[1:]) + '_online_sigmoid_adagrad'
 )
