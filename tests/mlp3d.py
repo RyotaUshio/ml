@@ -21,6 +21,7 @@ def callback(net):
 # 学習率0.01, 荷重減衰のパラメータ0.00005で, Momentumを使って重み更新.
 # 最大300エポック学習させるが. デフォルトで早期終了(early stopping)がONになっており, 
 # 一定期間を越えて検証用データに対するlossに進捗がない場合, 300エポック未満でも終了する. 
+ 
 net = ml.classify.mlp_classifier.fit(
     X_train[:-6000], T_train[:-6000],
     hidden_shape=[500, 200, 3],

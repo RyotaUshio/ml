@@ -566,7 +566,7 @@ class mlp(base._estimator_base):
             self,
             X_train:np.ndarray,
             T_train:np.ndarray, *,
-            eta0:float=1e-2,
+            eta0:float=1e-3,
             optimizer='Momentum',
             max_epoch:int=100,
             batch_size=200,

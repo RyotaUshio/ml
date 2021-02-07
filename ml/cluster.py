@@ -19,8 +19,6 @@ class k_means(base._estimator_base, base.cluster_mixin):
     X             : np.ndarray
     k             : int
     plot          : dataclasses.InitVar[bool] = True
-    tol           : dataclasses.InitVar[float] = 1e-2
-    patience_iter : dataclasses.InitVar[int] = 5
     delta         : dataclasses.InitVar[float] = 0.7
     verbose       : dataclasses.InitVar[bool] = True
     n_sample      : int = dataclasses.field(init=False)
@@ -196,3 +194,23 @@ class competitive_net(nn.mlp, base.cluster_mixin):
         
 class em(base._estimator_base, base.cluster_mixin):
     pass
+
+
+@dataclasses.dataclass(repr=False)
+class as_cluster(base.cluster_mixin):
+    """Interpret given patterns and labels as a result of clutering, and
+    returns an ojbect that ml.evaluate() can recognize as an cluster estimator.
+    """
+    X             : np.ndarray
+    labels        : np.ndarray
+    k             : int = dataclasses.field(init=False)
+    n_sample      : int = dataclasses.field(init=False)
+    centroids     : np.ndarray = dataclasses.field(init=False)
+
+    def __post_init__(self):
+        self.n_sample = len(self.X)
+        self.centroids, _, _ = utils.estimate_params(self.X, self.labels, cov=False, prior=False)
+        self.k = len(self.centroids)
+        
+    def __repr__(self):
+        return f"<{self.__class__.__name__} (k={self.k}) with {self.n_sample} pieces of data>"

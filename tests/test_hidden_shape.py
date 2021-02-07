@@ -7,16 +7,19 @@ import ml
 hidden_shape = [int(arg) for arg in sys.argv[1:]]
 
 net = ml.classify.mlp_classifier.from_shape(
-    shape=[784] + hidden_shape + [10], hidden_act='tanh'
+    shape=[784] + hidden_shape + [10], hidden_act='sigmoid'
 )
 
 print(net)
 
 net.train(
-    X_train, T_train, batch_size=1,
-    early_stopping=False, max_epoch=1000, how='stdout'
+    X_train, T_train,
+    X_val=X_test, T_val=T_test,
+    batch_size=1,
+    early_stopping=False, max_epoch=1000, how='stdout',
+    eta0=1e-1, optimizer='AdaGrad', lamb=0
 )
 
 net.save(
-    os.path.abspath(ml.__path__[0]) + f'/../pkl/hidden_shape_' + '_'.join(sys.argv[1:]) + '_online'
+    os.path.abspath(ml.__path__[0]) + f'/../pkl/hidden_shape_' + '_'.join(sys.argv[1:]) + '_online_sigmoid'
 )

@@ -32,6 +32,8 @@ class _evaluator_base:
                 ret += f"{k} : \n{pd.DataFrame(v, columns=['']).T}\n"
             elif isinstance(v, float):
                 ret += f"{k} : {v:.6f}\n"
+            elif isinstance(v, np.ndarray):
+                ret += f"{k} (mean) : {np.mean(v):.6f}\n"
             else:
                 ret += f"{k} : {v}\n"
         return ret.strip('\n')
@@ -192,7 +194,10 @@ class cluster_evaluator(_evaluator_base):
 
         DB = np.mean(similarity)
         return DB
-        
+
+
+
+    
 class regressor_evaluator(_evaluator_base):
     def eval(self, X, T):
         n_sample = len(X)

@@ -54,7 +54,7 @@ class cluster_mixin:
     estimator_type = 'cluster'
 
     def check_empty_cluster(self):
-        if len(np.unique(self.labels)) < self.k:
+        if len(np.unique(self.labels, axis=0)) < self.k:
             raise EmptyCluster("At least 1 cluster is empty.")
 
     def set_initial(self, delta):
@@ -71,6 +71,9 @@ class cluster_mixin:
             candidate = self.X[idx]
             if np.all(scipy.linalg.norm(self.centroids - candidate, axis=1) > delta):
                 self.centroids = np.vstack([self.centroids, candidate])
+
+    def scatter(self, **kwargs):
+        utils.scatter(self.X, self.labels, **kwargs)
 
 
 

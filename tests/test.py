@@ -4,15 +4,17 @@ import ml
 (X_train, T_train), (X_test, T_test) = ml.load_data('mnist')
 
 net = ml.nn.mlp_classifier.from_shape(
-    [784, 200, 50, 10], hidden_act='LeakyReLU',
-    dropout_ratio=[0.1, 0.4, 0.25], inverted=True
+    [784, 200, 50, 10], hidden_act='ReLU',
+    dropout_ratio=[0.1, 0.3, 0.1], inverted=True
 )
 net.train(
     X_train=X_train, T_train=T_train,
     X_val=X_test, T_val=T_test,
-    eta0=1e-2, lamb=0.00005, optimizer='Momentum',
+    eta0=1e-2, lamb=5e-05, optimizer='Momentum',
     max_epoch=3000, early_stopping=False
 )
+
+net.save('pkl/best')
 
 print("Train: ", end="")
 net.test(X_train, T_train, verbose=True)
