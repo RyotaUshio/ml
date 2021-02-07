@@ -1,31 +1,20 @@
+"""An example script for testing the classification algorithms in ml.
+"""
+
 import numpy as np
 import ml
 
+# The original MNIST dataset
 (X_train, T_train), (X_test, T_test) = ml.load_data('mnist')
+
+# 3-D features extracted by MLP's hidden layers
 X_train_3d = np.load('npy/mlp3d_train.npy')
 X_test_3d = np.load('npy/mlp3d_test.npy')
 
 evals = dict()
 
-# ____________________________ cluster ____________________________
 
-# K-means
-kmeans = ml.cluster.k_means(X_train_3d[:2000], k=10)
-evals['k_means'] = ml.evaluate(kmeans)
-
-# Competitive learning
-clnet = ml.cluster.competitive_net(
-    X_train_3d[:2000], k=10,
-    optimizer='AdaGrad', eta0=1e-2, tol=1e-5,
-    max_epoch=10
-)
-evals['competitive_net'] = ml.evaluate(clnet)
-
-# EM algorithm
-pass
-
-
-# ____________________________ classify ____________________________
+# _________________________________________________________________
 
 # K-nearest neighbors
 knn = ml.classify.k_nearest(X_train_3d, T_train, k=5)
@@ -49,10 +38,11 @@ pctr = ml.load('pkl/perceptron.pkl') # test_perceptron.pyで訓練
 pctr.test(bin_X_test, bin_T_test, True)
 evals['simple_perceptron'] = ml.evaluate(pctr, bin_X_test, bin_T_test)
 
-# # MLP
-# net = ml.load('pkl/9887_ido.pkl')    
-# net.test(X_test, T_test, verbose=True)
-# evals['mlp_classifier'] = ev.evaluate(net, X_test, T_test)
+# MLP
+# 訓練に時間がかかるのでpickle化したものを読み込んでいる
+net = ml.load('pkl/best.pkl')    
+net.test(X_test, T_test, verbose=True)
+evals['mlp_classifier'] = ml.evaluate(net, X_test, T_test)
 
 
 # _________________________________________________________________
