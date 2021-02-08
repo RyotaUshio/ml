@@ -17,7 +17,8 @@ evals = dict()
 # _________________________________________________________________
 
 # K-means
-kmeans = ml.cluster.k_means(X_train_3d[:2000], k=10)
+kmeans = ml.cluster.k_means(X_train_3d[:2000], k=10, plot=False)
+kmeans.scatter()
 evals['k_means'] = ml.evaluate(kmeans)
 
 # Competitive learning
@@ -26,10 +27,12 @@ clnet = ml.cluster.competitive_net(
     optimizer='AdaGrad', eta0=1e-2, tol=1e-5,
     max_epoch=10
 )
+clnet.scatter()
 evals['competitive_net'] = ml.evaluate(clnet)
 
 # EM algorithm
 em = ml.cluster.em(X_train_3d[:2000], k=10)
+em.scatter()
 evals['em'] = ml.evaluate(em)
 
 
