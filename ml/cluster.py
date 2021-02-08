@@ -35,8 +35,6 @@ class k_means(base._estimator_base, base.cluster_mixin):
     def __call__(
             self,
             plot=True,
-            tol: float=1e-2,
-            patience_iter: int=5,
             delta: float=0.7,
             verbose: bool=True
     ) -> None:
@@ -95,9 +93,8 @@ class em(base._estimator_base, base.cluster_mixin):
     X             : np.ndarray
     k             : int
     # used in convergence test
-    tol           : dataclasses.InitVar[float] = 0.1
-    patience_iter : dataclasses.InitVar[int] = 5
-    no_improvement_iter : int = dataclasses.field(init=False, default=0)
+    least_improve : dataclasses.InitVar[float] = 1e-2
+    patience      : dataclasses.InitVar[int] = 5
     # used in initilization with K-means
     delta         : dataclasses.InitVar[float] = 0.7
     # whether to print current number of iterations
@@ -108,14 +105,19 @@ class em(base._estimator_base, base.cluster_mixin):
     means         : np.ndarray = dataclasses.field(init=False)
     covs          : np.ndarray = dataclasses.field(init=False)
     priors        : np.ndarray = dataclasses.field(init=False)
-    # result
+    # results
     labels        : np.ndarray = dataclasses.field(init=False)
     centroids     : np.ndarray = dataclasses.field(init=False)
     n_sample      : int = dataclasses.field(init=False)
     
-    def __post_init__(self, tol, patience_iter, delta, verbose):
+    def __post_init__(self, least_improve, patience, delta, verbose):
         self.n_sample = len(self.X)
-        self.__call__(tol=tol, patience_iter=patience_iter, delta=delta, verbose=verbose)
+        self.__call__(
+            least_improve=least_improve,
+            patience=patience,
+            delta=delta,
+            verbose=verbose
+        )
     
     def __repr__(self):
         return f"<{self.__class__.__name__} (k={self.k}) with {self.n_sample} pieces of data>"
@@ -135,12 +137,9 @@ class em(base._estimator_base, base.cluster_mixin):
         )
 
     def E_step(self):
-        for n, x in enumerate(self.X):
-            gaussians = np.array([self.kth_gaussian(x, k) for k in range(self.k)])
-            nth_joints = self.priors * gaussians
-            self.joints[n] = nth_joints
-            resp = nth_joints / nth_joints.sum()
-            self.resps[n] = resp
+        gaussians = np.array([self.kth_gaussian(self.X, k) for k in range(self.k)]).T
+        self.joints = self.priors * gaussians
+        self.resps = self.joints / self.joints.sum(axis=1, keepdims=True)
 
     def M_step(self):
         for k in range(self.k):
@@ -158,44 +157,25 @@ class em(base._estimator_base, base.cluster_mixin):
         new_log_likelihood = np.sum(
             np.log(np.sum(self.joints, axis=1))
         )
-
-        if new_log_likelihood < self.log_likelihood + self.tol:
-            self.no_improvement_iter += 1
-        else:
-            self.no_improvement_iter = 0
-
-        if self.no_improvement_iter > self.patience_iter:
-            raise NoImprovement(
-                f"Log likelihood did not improved more than {self.tol} "
-                f"for the last {self.patience_iter} iterations."
-            )
-        
-        self.log_likelihood = new_log_likelihood
+        self.monitor(new_log_likelihood / (self.n_sample * self.k))
 
     def __call__(
             self,
-            tol: float=1e-2,
-            patience_iter: int=5,
+            least_improve: float=1e-2,
+            patience: int=5,
             delta: float=0.7,
             verbose: bool=True
     ) -> None:
         self.set_initial(delta)
-        self.tol = tol
-        self.patience_iter = patience_iter
-        count = 0
+        self.monitor = utils.monitor(
+            least_improve=least_improve, patience=patience, better='higher', verbose=verbose, name='log likelihood'
+        )
 
         while True:
-            count += 1
-            if verbose:
-                print('\r' + f'...Loop {count}...', end='')
-
-            self.E_step()
-            self.M_step()
-            
             try:
+                self.E_step()
+                self.M_step()
                 self.update_log_likelihood()
-                if verbose:
-                    print(f' Log likelihood = {self.log_likelihood}', end='')
                 
             except NoImprovement as e:
                 print(e)
@@ -214,8 +194,19 @@ class em(base._estimator_base, base.cluster_mixin):
             warnings.warn(f'{e}')
 
         if verbose:
-            print('\r' + f'Finished after {count} loops.')
+            print('\r' + f'Finished after {self.monitor.count} loops.')
 
+    def scatter(self, how='soft', centroids=True, **kwargs):
+        if how not in ['soft', 'hard']:
+            raise ValueError(f"'how' is expected to be either 'soft' or 'hard', got {how}")
+        if how == 'hard':
+            return super().scatter(centroids=centroids, **kwargs)
+        colors = np.array(
+            [np.average(utils.get_colors()[:self.k], weights=resp, axis=0) for resp in self.resps]
+        ) 
+        utils.scatter(self.X, c=colors, **kwargs)
+        if centroids:
+            self.scatter_centroids(plt.gca())
 
     
 class mean_shift(base._estimator_base, base.cluster_mixin):
