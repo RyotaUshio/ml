@@ -4,7 +4,7 @@
 
 from . import base, exceptions, nn, utils, classify, regress, cluster, feature
 from .evaluate import evaluate
-from .utils import load, save, load_data, imshow, scatter
+from .utils import load, save, load_data, imshow, scatter, monitor
 
 __version__ = '0.0.1'
 

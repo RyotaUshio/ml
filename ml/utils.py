@@ -1,13 +1,17 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import matplotlib.colors as colors
 import warnings
 with warnings.catch_warnings():
     warnings.simplefilter('ignore', FutureWarning)
     import keras.datasets as datasets # keras is only for datasets
     print("(Only for loading datasets)")
 from typing import Sequence, List, Callable
+import dataclasses
 import pickle
+
+from .exceptions import NoImprovement
 
 
 DATASETS = {
@@ -259,6 +263,12 @@ def scatter(X, T=None, *, fig=None, ax=None, **kwargs):
         for class_i in class_iter(X, T):
             ax.scatter(*class_i.T, **kwargs)
 
+
+def get_colors():
+    colors_hex = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    return np.array([colors.to_rgb(color) for color in colors_hex])
+         
+
             
 
 def strip_zero(X):
@@ -327,3 +337,53 @@ class minibatch_iter:
         self.X = self.X[self.batch_size:]
         self.T = self.T[self.batch_size:]
         return X_mini, T_mini
+
+
+
+
+@dataclasses.dataclass
+class monitor:
+    """Monitor a certain score that indicates the model's goodness of fit or achievement
+    of training, and raises NoImprovement exception when that score does not improve.
+    """
+    least_improve : float # same as what's called `min_delta` in keras.callbacks
+    patience : int
+    better : str
+    verbose : bool = True
+    name : str = 'score'
+    best_value : float = dataclasses.field(init=False)
+    cur_value : float = dataclasses.field(init=False)
+
+    def __post_init__(self):
+        if self.better not in ['higher', 'lower']:
+            raise ValueError(
+                f"Excepcted 'higher' or 'lower' for the parameter 'better', but got {self.better}"
+            )
+        self.best_value = -np.inf
+        self.no_improvement_iter = 0
+        self.count = 0
+
+    def __call__(self, value):
+        if self.verbose:
+            print(f"loop {self.count} : {self.name}={value:.6f}")    
+        
+        if self.better == 'lower':
+            value *= -1
+        
+        if value < self.best_value + self.least_improve:
+            self.no_improvement_iter += 1
+        else:
+            self.no_improvement_iter = 0
+
+        if self.no_improvement_iter > self.patience:
+            raise NoImprovement(self.message())
+
+        if value > self.best_value:
+            self.best_value = value
+
+        self.cur_value = value
+            
+        self.count += 1
+    
+    def message(self):
+        return f"{self.name.capitalize()} did not improved more than {self.least_improve} for the last {self.patience} iterations."
