@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.linalg
+import matplotlib.pyplot as plt
 
 from . import utils
 from .exceptions import EmptyCluster
@@ -72,8 +73,13 @@ class cluster_mixin:
             if np.all(scipy.linalg.norm(self.centroids - candidate, axis=1) > delta):
                 self.centroids = np.vstack([self.centroids, candidate])
 
-    def scatter(self, **kwargs):
+    def scatter(self, centroids=True, **kwargs):
         utils.scatter(self.X, self.labels, **kwargs)
+        if centroids:
+            self.scatter_centroids(plt.gca())
+
+    def scatter_centroids(self, ax):
+        utils.scatter(self.centroids, marker='x', c='tab:red', s=100, linewidth=3, ax=ax)
 
 
 
