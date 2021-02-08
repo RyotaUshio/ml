@@ -4,6 +4,7 @@ import ml
 import numpy as np
 import scipy.stats
 import matplotlib.pyplot as plt
+import itertools
 
 # doesn't work
 
@@ -24,26 +25,34 @@ def gen(mean, cov, size):
         mean=mean, cov=cov, size=size
     )
 
-def scatter(cluster):
-    cluster.scatter()
+def after_scatter(title):
     plt.gca().set_aspect('equal')
-
+    plt.title(title)
 
 X = [
-    gen([-5, 0], 8, 1000),
-    gen([6, 3], 1, 1000),
-    gen([6, -3], 1, 1000)
+    gen([-2, 0], [[8, 0], [0, 24]], 2000),
+    gen([8, 3], [[3, 0], [0, 0.5]], 6000),
+    gen([6, -4], [[0.5, 0], [0, 4]], 1000)
 ]
-labels = np.array([[i for _ in X[i]] for i in range(len(X))]).ravel()
+labels = np.concatenate([[i for _ in X[i]] for i in range(len(X))])
 
 args = [np.vstack(X), len(X)]
 km = ml.cluster.k_means(*args, plot=False)
-em = ml.cluster.em(*args)
+em = ml.cluster.em(*args, least_improve=1e-3)
 
-scatter(km)
-plt.title('K-means')
-scatter(em)
-plt.title('EM algorithm')
+def accuracy(cluster):
+    best = 0
+    for order in itertools.permutations(range(len(X))):
+        u, i = np.unique(labels, return_inverse=True)
+        n_ok = np.count_nonzero(cluster.labels == np.array(order)[i])
+        if n_ok > best:
+            best = n_ok
+    return best / len(labels)
 
+km.scatter()
+after_scatter(f'K-means: {accuracy(km) * 100:.4f}%')
+em.scatter()
+after_scatter(f'EM algorithm: {accuracy(em) * 100:.4f}%')
 ml.utils.scatter(args[0], T=labels)
-plt.title('Original')
+after_scatter('Original')
+plt.show()
