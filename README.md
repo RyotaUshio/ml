@@ -11,9 +11,8 @@ See `tests/test_ae.py` for the details.
 Input | Output
 :-------------------------:|:-------------------------:
 ![](https://github.com/RyotaUshio/ml/blob/main/fig/ae_original3.png)  |  ![](https://github.com/RyotaUshio/ml/blob/main/fig/ae_restored3.png)
-
-<img src="https://github.com/RyotaUshio/ml/blob/main/fig/ae_original5.png" width="40%" height="40%"/>
-<img src="https://github.com/RyotaUshio/ml/blob/main/fig/ae_restored5.png" width="40%" height="40%"/>
+![](https://github.com/RyotaUshio/ml/blob/main/fig/ae_original5.png) | 
+![]https://github.com/RyotaUshio/ml/blob/main/fig/ae_restored5.png)
 
 ### Clustering algorithms
 See `tests/test_cluster2.py` for the details.
