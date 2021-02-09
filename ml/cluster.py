@@ -41,8 +41,8 @@ class k_means(base._estimator_base, base.cluster_mixin):
         
         self.set_initial(delta)
         centroid_labels = np.array(range(self.k))
-        self.labels = np.zeros(self.n_sample)
-        count = 1
+
+        self.monitor = utils.stop_monitor(verbose=verbose, name='centroids')
 
         if plot:
             fig = plt.figure()
@@ -50,41 +50,37 @@ class k_means(base._estimator_base, base.cluster_mixin):
 
         while True:
             try:
-                if verbose:
-                    print('\r' + f'...Loop {count}...', end='')
-
                 # (can be interpreted as) the E step of the EM algorithm
                 knn = classify.k_nearest(self.centroids, centroid_labels, k=1)
-                new_labels = knn(self.X)
-
-                # break if the assignments do not change
-                if np.sum(np.abs(new_labels - self.labels)) == 0:
-                    break
-                self.labels = new_labels
+                self.labels = knn(self.X)
 
                 self.check_empty_cluster()
 
                 if plot:
                     plt.gca().remove()
-                    utils.scatter(self.X, self.labels, fig=fig)
+                    self.scatter(fig=fig)
                     plt.pause(0.8)
 
                 # (can be interpreted as) the M step of the EM algorithm
                 means, _, _ = utils.estimate_params(self.X, self.labels, cov=False, prior=False)
                 self.centroids = means
-                count += 1
+                self.monitor(self.centroids)
 
             except EmptyCluster as e:
                 self.set_initial(delta)
                 warnings.warn(f'{e} The centroids were re-initialized.')
                 continue
+
+            except NoImprovement as e:
+                print(e)
+                break
                 
             except KeyboardInterrupt:
                 warnings.warn("Clustering stopped by user.")
                 break
 
         if verbose:
-            print('\r' + f'Finished after {count} loops.')
+            print('\r' + f'Finished after {self.monitor.count} loops.')
 
             
 
@@ -167,7 +163,7 @@ class em(base._estimator_base, base.cluster_mixin):
             verbose: bool=True
     ) -> None:
         self.set_initial(delta)
-        self.monitor = utils.monitor(
+        self.monitor = utils.improvement_monitor(
             least_improve=least_improve, patience=patience, better='higher', verbose=verbose, name='log likelihood'
         )
 
@@ -330,11 +326,13 @@ class competitive_net(nn.mlp, base.cluster_mixin):
 
     def train_one_step(self, X_mini, T_mini, optimizer):
         super().train_one_step(X_mini, T_mini, optimizer)
+        # ____________ utils.change_monitorを使って書き直す_____________
         if scipy.linalg.norm(optimizer.dWs[-1]) < self.tol:
             raise nn.NoImprovement(
                 f"The centroids did not move more than {self.tol}."
             )
         self[-1].W /= scipy.linalg.norm(self[-1].W, axis=0, keepdims=True)
+        # ______________________________________________________________
 
     def log_init(self, **kwargs):
         return competitive_logger(**kwargs)

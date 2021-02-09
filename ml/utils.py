@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.linalg
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import matplotlib.colors as colors
@@ -362,7 +363,40 @@ class minibatch_iter:
 
 
 @dataclasses.dataclass
-class monitor:
+class change_monitor:
+    least_change : float
+    verbose : bool = True
+    name : str = 'score'
+    count : int = dataclasses.field(init=False, default=0, repr=False)
+    cur_value : float = dataclasses.field(init=False, default=None)
+    
+    def __call__(self, value):
+        if self.verbose:
+            print(f"loop {self.count} : {self.name}={value}")
+            
+        if self.count > 0:
+            if np.all(scipy.linalg.norm(value - self.cur_value, axis=-1) <= self.least_change):
+                raise NoImprovement(self.message())
+            
+        self.cur_value = value
+        self.count += 1
+        
+    def message(self):
+        return f"{self.name.capitalize()} did not change more than {self.least_change}."
+
+
+    
+class stop_monitor(change_monitor):
+    def __init__(self, verbose=True, name='score'):
+        super().__init__(least_change=np.finfo(float).eps, verbose=verbose, name=name)
+        
+    def message(self):
+        return f"{self.name.capitalize()} did not change at all."
+    
+    
+    
+@dataclasses.dataclass
+class improvement_monitor:
     """Monitor a certain score that indicates the model's goodness of fit or achievement
     of training, and raises NoImprovement exception when that score does not improve.
     """
