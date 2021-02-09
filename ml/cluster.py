@@ -195,9 +195,8 @@ class em(base._estimator_base, base.cluster_mixin):
                 warnings.warn("Clustering stopped by user.")
                 break
 
-        self.centroids = self.means
         self.labels = np.argmax(self.resps, axis=1)
-
+        
         try:
             self.check_empty_cluster()
         except EmptyCluster as e:
