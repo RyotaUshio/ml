@@ -296,10 +296,14 @@ class competitive_net(nn.mlp, base.cluster_mixin):
             self.centroids, np.array(range(self.k)), k=1
         )
         self.labels = knn(self.X_normalized)
+
         try:
             self.check_empty_cluster()
         except EmptyCluster as e:
             print(e)
+
+        means, _, _ = utils.estimate_params(self.X, self.labels, cov=False, prior=False)
+        self.centroids *= scipy.linalg.norm(means, axis=1, keepdims=True)
 
     def back_prop(self, t : np.ndarray) -> None:
         pass

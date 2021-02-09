@@ -6,18 +6,6 @@ import scipy.stats
 import matplotlib.pyplot as plt
 import itertools
 
-# doesn't work
-
-# The original MNIST dataset
-# (X_train, T_train), (X_test, T_test) = ml.load_data('mnist')
-# net = ml.load('pkl/mlp3d_dropout_weight_decay.pkl')
-# net.forward_prop(X_train)
-# X = net[-2].z.copy()
-
-# em = ml.cluster.em(X, k=10)
-# em.scatter()
-# print(ml.evaluate(em))
-
 def gen(mean, cov, size):
     if isinstance(cov, (float, int)):
         cov = np.identity(len(mean)) * cov
@@ -35,9 +23,13 @@ X = [
     gen([6, -4], [[0.5, 0], [0, 4]], 1000)
 ]
 labels = np.concatenate([[i for _ in X[i]] for i in range(len(X))])
-
 args = [np.vstack(X), len(X)]
+
+# K-means
 km = ml.cluster.k_means(*args, plot=False)
+# Competitive Learning
+cl = ml.cluster.competitive_net(*args, max_epoch=10)
+# EM algorithm
 em = ml.cluster.em(*args, least_improve=1e-3)
 
 def accuracy(cluster):
@@ -50,13 +42,12 @@ def accuracy(cluster):
     return best / len(labels)
 
 km.scatter()
-after_scatter(f'K-means: {accuracy(km) * 100:.4f}%')
+after_scatter(f'K-means: {accuracy(km) * 100:.2f}%')
+cl.scatter()
+after_scatter(f'Competitive Learning: {accuracy(km) * 100:.2f}%')
 em.scatter(contours=True)
-after_scatter(f'EM algorithm: {accuracy(em) * 100:.4f}%')
+after_scatter(f'EM algorithm: {accuracy(em) * 100:.2f}%')
 ml.utils.scatter(args[0], T=labels)
 after_scatter('Original')
-
-# print(ml.evaluate(em))
-# print(ml.evaluate(km))
 
 plt.show()
