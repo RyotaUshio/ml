@@ -15,7 +15,7 @@ class classifier_mixin:
     estimator_type = 'classifier'
 
     def predict_label(self, x, threshold=None, **kwargs):
-        """Return the predicted class labels, not inferior probability of each class.
+        """Return the predicted class labels, not posterior probability of each class.
         """
         output = self(x, **kwargs)
         if self.classification_type == 'multi':
