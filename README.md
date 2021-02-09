@@ -1,7 +1,7 @@
 # ml
 A pattern recognition & machine learning package for Python.
 
-## Authors
+## Author
 * **Ryota Ushio** - https://github.com/RyotaUshio
 
 ## Examples
