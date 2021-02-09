@@ -15,7 +15,7 @@ class transformer:
         self.X = X
 
     def transform(self):
-        pass
+        raise NotImplementedError
 
     def __getitem__(self, key):
         return self.X_trans[key]
@@ -192,6 +192,9 @@ class autoencoder(_autoencoder_base):
     >>> utils.imshow(output[0])
     """
     simple_aes : Sequence[_autoencoder_base] = dataclasses.field(default_factory=list, repr=False)
+
+    def __post_init__(self):
+        self.transform()
     
     @classmethod
     def fit(cls,
@@ -251,3 +254,11 @@ class autoencoder(_autoencoder_base):
             layers = [net[0]] + layers
 
             return cls(layers=layers, loss=net.loss, simple_aes=simple_aes)
+
+    def transform(self, X=None):
+        if X is None:
+            X = self.X
+        self.forward_prop(X)
+        self.X_trans = self[np.argmin(self.shape)].z.copy()
+        if X is not self.X:
+            return X
