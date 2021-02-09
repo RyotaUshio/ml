@@ -13,10 +13,6 @@ def gen(mean, cov, size):
         mean=mean, cov=cov, size=size
     )
 
-def after_scatter(title):
-    plt.gca().set_aspect('equal')
-    plt.title(title)
-
 X = [
     gen([-2, 0], [[8, 0], [0, 24]], 2000),
     gen([8, 3], [[3, 0], [0, 0.5]], 6000),
@@ -40,6 +36,11 @@ def accuracy(cluster):
         if n_ok > best:
             best = n_ok
     return best / len(labels)
+
+def after_scatter(title):
+    plt.gca().set_aspect('equal')
+    plt.title(title)
+
 
 km.scatter()
 after_scatter(f'K-means: {accuracy(km) * 100:.2f}%')
