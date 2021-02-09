@@ -28,7 +28,7 @@ args = [np.vstack(X), len(X)]
 # K-means
 km = ml.cluster.k_means(*args, plot=False)
 # Competitive Learning
-cl = ml.cluster.competitive_net(*args, max_epoch=10)
+cl = ml.cluster.competitive_net(*args, max_epoch=30)
 # EM algorithm
 em = ml.cluster.em(*args, least_improve=1e-3)
 
