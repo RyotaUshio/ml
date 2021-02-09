@@ -15,12 +15,12 @@ See `tests/test_ae.py` for the details.
 
 ### Clustering algorithms
 
-Here's an example for some clustering algorithms. See `tests/test_cluster2.py` for the details.
+Here're some examples for clustering algorithms. See `tests/test_cluster2.py` for the details.
 
-*Input
+* Input
 <img src="https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_original.png" height="50%" width="50%">
 
-*Outputs
+* Outputs
 | K-means | Competitive Learning | EM Algorithm |
 | --- | --- | --- |
 | ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_kmeans.png) | ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_competitive.png) | ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_em.png)
