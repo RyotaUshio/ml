@@ -8,8 +8,10 @@ A pattern recognition & machine learning package for Python.
 ### Autoencoder
 See `tests/test_ae.py` for the details.
 
-<img src="https://github.com/RyotaUshio/ml/blob/main/fig/ae_original3.png" width="40%" height="40%"/>
-<img src="https://github.com/RyotaUshio/ml/blob/main/fig/ae_restored3.png" width="40%" height="40%"/>
+Solarized dark             |  Solarized Ocean
+:-------------------------:|:-------------------------:
+![input](https://github.com/RyotaUshio/ml/blob/main/fig/ae_original3.png)  |  ![output](https://github.com/RyotaUshio/ml/blob/main/fig/ae_restored3.png)
+
 <img src="https://github.com/RyotaUshio/ml/blob/main/fig/ae_original5.png" width="40%" height="40%"/>
 <img src="https://github.com/RyotaUshio/ml/blob/main/fig/ae_restored5.png" width="40%" height="40%"/>
 
