@@ -11,7 +11,7 @@ Typically, it constists of same-sized input & output layers and some hidden laye
 As the result, the hidden layer's activation pattern, which has less dimensions than the input, can be interpreted to hold "essential" information about the input patter in a sense.
 Therefore, it is used for feature extraction or dimensionality reduction.
 
-See `tests/test_ae.py` for the details.
+Here's an example using the MNIST handwritten digits dataset. See `tests/test_ae.py` for the details.
 
 | Input | Output | 
 | --- | ---|
