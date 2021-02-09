@@ -2,12 +2,13 @@
 A pattern recognition & machine learning package for Python. It provides:
 
 1. Classification algorithms, such as
-the k-nearest neighbors algorithm, a classifier by generative approaches, the simple perceptron, and classification with MLP : multilayer perceptron
+the k-nearest neighbors algorithm, a classifier by generative approaches, the simple perceptron, and classification with MLP : multilayer perceptron,
 1. Clustering algorithms, such as
-K-means, competitive learning, the EM algorithm(, and mean shift)
+K-means, competitive learning, the EM algorithm(, and mean shift),
 1. Regression analysis including the standard linear regression, Ridge regression, (lasso, ...)
 1. Feature extraction & dimensionality reduction, such as
-PCA : principal component analysis, whitening transformation, LDA : linear discriminant analysis, and autoencoders (simple & stacked).
+PCA : principal component analysis, whitening transformation, LDA : linear discriminant analysis, and autoencoders (simple & stacked),
+1. Evaluation of those algorithms above.
 
 ## Author
 * **Ryota Ushio** - https://github.com/RyotaUshio
