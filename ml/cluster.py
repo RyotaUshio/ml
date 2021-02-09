@@ -196,7 +196,7 @@ class em(base._estimator_base, base.cluster_mixin):
         if verbose:
             print('\r' + f'Finished after {self.monitor.count} loops.')
 
-    def scatter(self, how='soft', centroids=True, **kwargs):
+    def scatter(self, how='soft', centroids=True, contours=False, **kwargs):
         if how not in ['soft', 'hard']:
             raise ValueError(f"'how' is expected to be either 'soft' or 'hard', got {how}")
         if how == 'hard':
@@ -206,7 +206,35 @@ class em(base._estimator_base, base.cluster_mixin):
         ) 
         utils.scatter(self.X, c=colors, **kwargs)
         if centroids:
-            self.scatter_centroids(plt.gca())
+            self.scatter_centroids(ax=plt.gca())
+        if contours:
+            self.contour(ax=plt.gca())
+
+    def contour(self, step=0.1, sigmas=[1, 2], fig=None, ax=None):
+        fig, ax = utils.make_subplot(fig, ax, False)
+        levels = [sigma**2 for sigma in sigmas]
+        for k in range(self.k):
+            CS = utils.contour(
+                lambda X: self.mahalanobis_sq(X, k=k),
+                ax.get_xlim(), ax.get_ylim(), step, ax=ax, levels=levels,
+                colors='w', linewidths=1
+            )
+            fmt = {}
+            for l in CS.levels:
+                fmt[l] = f'${np.sqrt(l):.0f}\\sigma$'
+            ax.clabel(CS, fmt=fmt, fontsize=8)
+        
+
+            
+    def mahalanobis_sq(self, X, k=None):
+        if k is None:
+            k = range(self.k)
+        elif not hasattr(k, '__iter__'):
+            k = [k]
+        return np.array(
+            [[(x - self.means[k]) @ scipy.linalg.inv(self.covs[k]) @ (x - self.means[k]).T for k in k]
+             for x in X]
+        )
 
     
 class mean_shift(base._estimator_base, base.cluster_mixin):

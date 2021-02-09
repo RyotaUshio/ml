@@ -51,8 +51,12 @@ def accuracy(cluster):
 
 km.scatter()
 after_scatter(f'K-means: {accuracy(km) * 100:.4f}%')
-em.scatter()
+em.scatter(contours=True)
 after_scatter(f'EM algorithm: {accuracy(em) * 100:.4f}%')
 ml.utils.scatter(args[0], T=labels)
 after_scatter('Original')
+
+# print(ml.evaluate(em))
+# print(ml.evaluate(km))
+
 plt.show()

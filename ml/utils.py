@@ -243,18 +243,26 @@ def estimate_params(
     return np.array(means), np.array(covs), np.array(priors)
 
 
-def scatter(X, T=None, *, fig=None, ax=None, **kwargs):
-    dim = X.shape[1]
-    if dim not in [2, 3]:
-        raise ValueError(f"Can't make a scatter plot of {dim}-D data.")
-    
+def make_subplot(fig=None, ax=None, _3d=False):
+    # _3dのかわりにいいパラメータ名はないものか
     if ax is None:
         if fig is None:
             fig = plt.figure()
         projection = None
-        if dim == 3:
+        if _3d:
             projection = '3d'
         ax = fig.add_subplot(111, projection=projection)
+    elif fig is None:
+        fig = ax.figure
+    return fig, ax
+
+
+
+def scatter(X, T=None, *, fig=None, ax=None, **kwargs):
+    dim = X.shape[1]
+    if dim not in [2, 3]:
+        raise ValueError(f"Can't make a scatter plot of {dim}-D data.")
+    fig, ax = make_subplot(fig, ax, dim==3)
 
     if T is None:
         ax.scatter(*X.T, **kwargs)
@@ -262,6 +270,18 @@ def scatter(X, T=None, *, fig=None, ax=None, **kwargs):
     else:
         for class_i in class_iter(X, T):
             ax.scatter(*class_i.T, **kwargs)
+
+            
+def contour(func: Callable, xlim, ylim, step, fig=None, ax=None, levels=[0], **kwargs):
+    x = np.arange(*xlim, step)
+    y = np.arange(*ylim, step)
+    X, Y = np.meshgrid(x, y)
+    XY = np.array([X.ravel(), Y.ravel()]).T
+    Z = func(XY) # expeceted to be 1-D
+    Z = Z.reshape(X.shape)
+    fig, ax = make_subplot(fig, ax, False)
+    CS = ax.contour(X, Y, Z, levels=levels, **kwargs)
+    return CS
 
 
 def get_colors():

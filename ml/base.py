@@ -76,10 +76,11 @@ class cluster_mixin:
     def scatter(self, centroids=True, **kwargs):
         utils.scatter(self.X, self.labels, **kwargs)
         if centroids:
-            self.scatter_centroids(plt.gca())
+            self.scatter_centroids(ax=plt.gca())
 
-    def scatter_centroids(self, ax):
-        utils.scatter(self.centroids, marker='x', c='tab:red', s=100, linewidth=3, ax=ax)
+    def scatter_centroids(self, *, fig=None, ax=None):
+        fig, ax = utils.make_subplot(fig, ax, _3d=self.X.shape[1]==3)
+        utils.scatter(self.centroids, marker='x', c='w', s=20, linewidth=1, ax=ax)
 
 
 
