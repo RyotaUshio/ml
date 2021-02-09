@@ -22,11 +22,11 @@ labels = np.concatenate([[i for _ in X[i]] for i in range(len(X))])
 args = [np.vstack(X), len(X)]
 
 # K-means
-km = ml.cluster.k_means(*args, plot=False)
+km = ml.cluster.k_means(*args, plot=True, delta=5)
 # Competitive Learning
 cl = ml.cluster.competitive_net(*args, max_epoch=30)
 # EM algorithm
-em = ml.cluster.em(*args, least_improve=1e-3)
+em = ml.cluster.em(*args, least_improve=1e-3, plot=True, contours=True, centroids=True, delta=5)
 
 def accuracy(cluster):
     best = 0

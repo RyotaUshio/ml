@@ -33,10 +33,10 @@ class k_means(base._estimator_base, base.cluster_mixin):
         return f"<{self.__class__.__name__} (k={self.k}) with {self.n_sample} pieces of data>"
  
     def __call__(
-            self,
-            plot=True,
+            self, *,
             delta: float=0.7,
-            verbose: bool=True
+            verbose: bool=True,
+            plot=True
     ) -> None:
         
         self.set_initial(delta)
@@ -59,7 +59,7 @@ class k_means(base._estimator_base, base.cluster_mixin):
                 if plot:
                     plt.gca().remove()
                     self.scatter(fig=fig)
-                    plt.pause(0.8)
+                    plt.pause(0.2)
 
                 # (can be interpreted as) the M step of the EM algorithm
                 means, _, _ = utils.estimate_params(self.X, self.labels, cov=False, prior=False)
@@ -72,47 +72,48 @@ class k_means(base._estimator_base, base.cluster_mixin):
                 continue
 
             except NoImprovement as e:
-                print(e)
+                if verbose:
+                    print(e)
                 break
                 
             except KeyboardInterrupt:
                 warnings.warn("Clustering stopped by user.")
                 break
 
+        if plot:
+            plt.ioff()
         if verbose:
             print('\r' + f'Finished after {self.monitor.count} loops.')
 
             
 
-@dataclasses.dataclass(repr=False)
+
 class em(base._estimator_base, base.cluster_mixin):
-    X             : np.ndarray
-    k             : int
-    # used in convergence test
-    least_improve : dataclasses.InitVar[float] = 1e-2
-    patience      : dataclasses.InitVar[int] = 5
-    # used in initilization with K-means
-    delta         : dataclasses.InitVar[float] = 0.7
-    # whether to print current number of iterations
-    verbose       : dataclasses.InitVar[bool] = True
-    # Responsibilities : estimated in the E step
-    resps         : np.ndarray = dataclasses.field(init=False)
-    # Parameters of Gaussian mixture : estimated in the M step
-    means         : np.ndarray = dataclasses.field(init=False)
-    covs          : np.ndarray = dataclasses.field(init=False)
-    priors        : np.ndarray = dataclasses.field(init=False)
-    # results
-    labels        : np.ndarray = dataclasses.field(init=False)
-    centroids     : np.ndarray = dataclasses.field(init=False)
-    n_sample      : int = dataclasses.field(init=False)
-    
-    def __post_init__(self, least_improve, patience, delta, verbose):
+    def __init__(
+            self, 
+            X             : np.ndarray,
+            k             : int,
+            # used in convergence test
+            least_improve : float = 1e-2,
+            patience      : int = 5,
+            # used in initilization with K-means
+            delta         : float = 0.7,
+            # whether to print current status
+            verbose       : bool = True,
+            # whether & how to plot current status
+            plot          : bool = True,
+            **kwargs
+    ):
+        self.X = X
+        self.k = k
         self.n_sample = len(self.X)
         self.__call__(
             least_improve=least_improve,
             patience=patience,
             delta=delta,
-            verbose=verbose
+            verbose=verbose,
+            plot=plot,
+            **kwargs
         )
     
     def __repr__(self):
@@ -121,9 +122,10 @@ class em(base._estimator_base, base.cluster_mixin):
     def set_initial(self, delta):
         kmeans = k_means(X=self.X, k=self.k, plot=False, delta=delta, verbose=False)
         self.means, self.covs, self.priors = utils.estimate_params(X=self.X, T=kmeans.labels)
-        self.resps = np.zeros((self.n_sample, self.k))
+        self.resps = np.ones((self.n_sample, self.k))
         self.joints = np.zeros((self.n_sample, self.k))
         self.log_likelihood = -np.inf
+        self.centroids = self.means
 
     def kth_gaussian(self, x, k):
         return scipy.stats.multivariate_normal.pdf(
@@ -156,25 +158,37 @@ class em(base._estimator_base, base.cluster_mixin):
         self.monitor(new_log_likelihood / (self.n_sample * self.k))
 
     def __call__(
-            self,
+            self, *,
             least_improve: float=1e-2,
             patience: int=5,
             delta: float=0.7,
-            verbose: bool=True
+            verbose: bool=True,
+            plot: bool=True,
+            **kwargs
     ) -> None:
         self.set_initial(delta)
         self.monitor = utils.improvement_monitor(
             least_improve=least_improve, patience=patience, better='higher', verbose=verbose, name='log likelihood'
         )
 
+        if plot:
+            fig = plt.figure()
+            plt.ion()
+
         while True:
             try:
+                if plot:
+                    plt.gca().remove()
+                    self.scatter(fig=fig, step=1, **kwargs)
+                    plt.pause(0.2)
+                
                 self.E_step()
                 self.M_step()
                 self.update_log_likelihood()
                 
             except NoImprovement as e:
-                print(e)
+                if verbose:
+                    print(e)
                 break
             
             except KeyboardInterrupt:
@@ -189,10 +203,12 @@ class em(base._estimator_base, base.cluster_mixin):
         except EmptyCluster as e:
             warnings.warn(f'{e}')
 
+        if plot:
+            plt.ioff()
         if verbose:
             print('\r' + f'Finished after {self.monitor.count} loops.')
 
-    def scatter(self, how='soft', centroids=True, contours=False, **kwargs):
+    def scatter(self, how='soft', centroids=True, contours=False, step=0.1, **kwargs):
         if how not in ['soft', 'hard']:
             raise ValueError(f"'how' is expected to be either 'soft' or 'hard', got {how}")
         if how == 'hard':
@@ -204,7 +220,7 @@ class em(base._estimator_base, base.cluster_mixin):
         if centroids:
             self.scatter_centroids(ax=plt.gca())
         if contours:
-            self.contour(ax=plt.gca())
+            self.contour(ax=plt.gca(), step=step)
 
     def contour(self, step=0.1, sigmas=[1, 2], fig=None, ax=None):
         fig, ax = utils.make_subplot(fig, ax, False)

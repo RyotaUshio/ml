@@ -31,7 +31,7 @@ clnet.scatter()
 evals['competitive_net'] = ml.evaluate(clnet)
 
 # EM algorithm
-em = ml.cluster.em(X_train_3d[:2000], k=10)
+em = ml.cluster.em(X_train_3d[:2000], k=10, plot=False)
 em.scatter()
 evals['em'] = ml.evaluate(em)
 
