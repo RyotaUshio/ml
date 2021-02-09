@@ -19,7 +19,7 @@ Here're some examples for clustering algorithms. See `tests/test_cluster2.py` fo
 
 * Input
 
-<img src="https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_original.png" height="33%" width="33%">
+<img src="https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_original.png" height="30%" width="30%">
 
 * Outputs
 
