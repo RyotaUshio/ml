@@ -2,7 +2,7 @@
 A pattern recognition & machine learning package for Python.
 
 ## Authors
-* **Ryota Ushio** - *Initial work* - [PurpleBooth](https://github.com/RyotaUshio)
+* **Ryota Ushio** - https://github.com/RyotaUshio
 
 ## Examples
 
