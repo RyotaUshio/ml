@@ -6,7 +6,7 @@ A pattern recognition & machine learning package for Python.
 
 ## Examples
 
-# Clustering algorithms
+### Clustering algorithms
 
 See `tests/test_cluster2.py` for the details.
 
