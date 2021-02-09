@@ -16,8 +16,6 @@ See `tests/test_ae.py` for the details.
 ### Clustering algorithms
 See `tests/test_cluster2.py` for the details.
 
-![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_original.png)
-
-| K-means | Competitive Learning | EM Algorithm |
-| --- | --- | --- |
-| ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_kmeans.png) | ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_competitive.png) | ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_em.png)
+| Input Patterns | K-means | Competitive Learning | EM Algorithm |
+| --- | --- | --- | --- |
+| ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_original.png) | ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_kmeans.png) | ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_competitive.png) | ![](https://github.com/RyotaUshio/ml/blob/main/fig/test_cluster2_em.png)
