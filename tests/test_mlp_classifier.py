@@ -36,7 +36,7 @@ net.train(
 )
 
 # (uncomment this to replace the existing pickle file with a new one)
-# net.save('pkl/best')
+net.save('pkl/test_mlp_classifier')
 
 # Evaluation of the network's classification performance
 print("(1) test for ml.nn.mlp_classifier's test() method")

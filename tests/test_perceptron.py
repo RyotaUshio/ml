@@ -23,4 +23,5 @@ pctr = ml.classify.simple_perceptron.fit(X_train, T_train)
 
 pctr.test(X_test, T_test, True)
 
+# uncomment this to overwrite
 pctr.save('pkl/perceptron.pkl') # -> ml.load('pkl/perceptron.pkl')で読み込める.
