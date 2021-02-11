@@ -1,5 +1,11 @@
 # Example & test scripts
 
+Just run them like:
+```
+$ python tests/test_hoge.py
+```
+Note that you must do this in the upper directories (otherwise the `ml` package cannot be imported).
+
 - `test_mlp_classifier.py`
 
 A test for `ml.nn.mlp_classifier` (`ml.classify.mlp_classifier` is an alias for this) using the MNIST handwritten digits dataset.
