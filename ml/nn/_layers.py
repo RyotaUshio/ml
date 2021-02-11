@@ -3,6 +3,7 @@ from typing import Type, Sequence, List, Callable
 import warnings
 
 from .. import base, utils
+from ._activation import act_func
 
 
 
@@ -74,7 +75,6 @@ class layer:
                 raise ValueError("Incompatible size was specified.")
             self.size = self.W.shape[1]
             # set the activation function
-            from ._nn import act_func
             self.h = act_func.make(h)
 
         # for an input layer

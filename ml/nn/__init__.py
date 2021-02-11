@@ -1,1 +1,2 @@
-from .nn import *
+from ._mlp import * # あとでちゃんとやる
+
