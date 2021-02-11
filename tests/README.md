@@ -6,7 +6,7 @@ $ python tests/test_hoge.py
 ```
 Note that you must do this in the upper directories (otherwise the `ml` package cannot be imported).
 
-
+## Note about each script
 
 - `test_mlp_classifier.py`
 
