@@ -14,18 +14,18 @@ from .exceptions import EmptyCluster, NoImprovement
 
 
 
-@dataclasses.dataclass(repr=False)
 class k_means(base._estimator_base, base.cluster_mixin):
-    X             : np.ndarray
-    k             : int
-    plot          : dataclasses.InitVar[bool] = True
-    delta         : dataclasses.InitVar[float] = 0.7
-    verbose       : dataclasses.InitVar[bool] = True
-    n_sample      : int = dataclasses.field(init=False)
-    centroids     : np.ndarray = dataclasses.field(init=False)
-    labels        : np.ndarray = dataclasses.field(init=False)
-
-    def __post_init__(self, plot, delta, verbose):
+    def __init__(
+            self,
+            X             : np.ndarray,
+            k             : int,
+            *,
+            plot          : bool = True,
+            delta         : float = 0.7,
+            verbose       : bool = True
+    ):
+        self.X = X
+        self.k = k
         self.n_sample = len(self.X)
         self.__call__(plot=plot, delta=delta, verbose=verbose)
     
@@ -57,7 +57,7 @@ class k_means(base._estimator_base, base.cluster_mixin):
                 self.check_empty_cluster()
 
                 if plot:
-                    plt.gca().remove()
+                    plt.cla()
                     self.scatter(fig=fig)
                     plt.pause(0.2)
 
@@ -93,6 +93,7 @@ class em(base._estimator_base, base.cluster_mixin):
             self, 
             X             : np.ndarray,
             k             : int,
+            *,
             # used in convergence test
             least_improve : float = 1e-2,
             patience      : int = 5,
@@ -178,7 +179,7 @@ class em(base._estimator_base, base.cluster_mixin):
         while True:
             try:
                 if plot:
-                    plt.gca().remove()
+                    plt.cla()
                     self.scatter(fig=fig, step=1, **kwargs)
                     plt.pause(0.2)
                 
@@ -247,9 +248,13 @@ class em(base._estimator_base, base.cluster_mixin):
              for x in X]
         )
 
+
+
     
 class mean_shift(base._estimator_base, base.cluster_mixin):
     pass
+
+
 
 
 class competitive_layer(nn.layer):
@@ -260,6 +265,7 @@ class competitive_layer(nn.layer):
         return f"<{self.__class__.__name__} of {self.size} neurons>"
 
     
+    
 @dataclasses.dataclass
 class competitive_activation(nn.act_func):
     def __post_init__(self):
@@ -268,6 +274,7 @@ class competitive_activation(nn.act_func):
     def __call__(self, u):
         return np.where(u >= u.max(axis=1, keepdims=True), 1, 0)
 
+
     
 class competitive_loss(nn.loss_func):
     def _call_impl(self, t):
@@ -275,6 +282,8 @@ class competitive_loss(nn.loss_func):
     def error(self, t):
         pass
 
+
+    
 class competitive_logger(nn.logger):
     def __call__(self):
         self.iterations += 1
@@ -285,6 +294,7 @@ class competitive_logger(nn.logger):
                 print('\r' + f'...Epoch {self.epoch}...', end='')
         
 
+                
 class competitive_net(nn.mlp, base.cluster_mixin):
     def __init__(self, X: np.ndarray,  k: int, tol: float=0.03, delta=0.45, **kwargs):
         self.X = utils.check_twodim(X)
@@ -352,6 +362,7 @@ class competitive_net(nn.mlp, base.cluster_mixin):
     def log_init(self, **kwargs):
         return competitive_logger(**kwargs)
 
+    
     
 
 @dataclasses.dataclass(repr=False)
