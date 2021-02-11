@@ -2,7 +2,6 @@
 
 import ml
 
-
 # Load the MNIST handwritten digits data.
 # X : the input patterns (28x28=784 dimensional vectors).
 # T : the label for each input pattern in X (represented in 1-of-K (a.k.a one-hot) coding scheme).
@@ -28,7 +27,7 @@ net = ml.nn.mlp_classifier.from_shape(
 # `optimizer='Momentum` : the Momentum method is used in updating parameter
 # `max_epoch=300' : Training continues for at most 300 epochs. but
 # early stopping mode is ON by default, so it could be aborted before it reaches `max_epoch`.
-# Not that training also can be stopped manually by `KeyboardInterrupt` (Ctrl+C).
+# Note that training also can be stopped manually by `KeyboardInterrupt` (Ctrl+C).
 net.train(
     X_train=X_train[10000:], T_train=T_train[10000:],
     X_val=X_train[:10000], T_val=T_train[:10000],
