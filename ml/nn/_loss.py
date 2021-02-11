@@ -33,7 +33,7 @@ class loss_func:
         delta = last_layer.z - t
         # mean_squareとsigmoid/softmaxの組み合わせならこれで正しい。ほかの組み合わせでもこれでいいのかは未確認(PRMLのpp.211?まだきちんと追ってない)!!!
         if not last_layer.h.is_canonical:
-            if isinstance(self.net.loss, mul_cross_entropy):
+            if isinstance(self.net.loss, multi_cross_entropy):
                 delta = np.matmul(delta.reshape((delta.shape[0], 1, delta.shape[1])), last_layer.h.val2deriv(last_layer.z))
                 delta = delta.reshape((delta.shape[0], -1))
             else:
@@ -59,7 +59,7 @@ class cross_entropy(loss_func):
         return -(t * np.log(z) + (1.0 - t) * np.log(1 - z)).sum() / batch_size
 
     
-class mul_cross_entropy(cross_entropy):
+class multi_cross_entropy(cross_entropy):
     """Cross entropy error for multiclass classification.
     """
     def _call_impl(self, t):
@@ -71,6 +71,6 @@ class mul_cross_entropy(cross_entropy):
 LOSSES = {
     'mean_square'       : mean_square,
     'cross_entropy'     : cross_entropy,
-    'mul_cross_entropy' : mul_cross_entropy,
+    'multi_cross_entropy' : multi_cross_entropy,
     None                : lambda: None
 }

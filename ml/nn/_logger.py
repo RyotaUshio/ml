@@ -221,7 +221,7 @@ class logger:
         # record time elapsed
         self._tf = time.time()
         self.time = self._tf - self._t0
-        # calculate AIC & BIC (This is correct only when using (sigmoid, cross_entropy) or (softmax, mul_cross_entropy).)
+        # calculate AIC & BIC (This is correct only when using (sigmoid, cross_entropy) or (softmax, multi_cross_entropy).)
         net = self.net
         from ._loss import cross_entropy
         if (isinstance(net.loss, cross_entropy)

@@ -7,6 +7,17 @@ from ._activation import act_func
 
 
 
+class _layer_base:
+    """Base class for all types of layers in ml.nn.
+    """
+    pass
+
+class input_layer(_layer_base):
+    pass
+
+class fully_connected_layer(_layer_base):
+    pass
+
 class layer:
     """A layer in multi-layer perceptron.
     

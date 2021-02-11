@@ -3,7 +3,7 @@ import dataclasses
 from typing import Type
 import copy
 
-from ._loss import loss_func, mean_square, cross_entropy, mul_cross_entropy
+from ._loss import loss_func, mean_square, cross_entropy, multi_cross_entropy
 
 
 @dataclasses.dataclass
@@ -125,7 +125,7 @@ class softmax(act_func):
     """Softmax function.
     """
     def __post_init__(self):
-        self.loss_type = mul_cross_entropy
+        self.loss_type = multi_cross_entropy
         
     def __call__(self, u):
         tmp = u - u.max()
