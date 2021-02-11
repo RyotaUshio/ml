@@ -182,6 +182,8 @@ def prob2one_of_K(x):
 
 def check_twodim(a:np.ndarray=None):
     """Make sure an array is two-dimensinal.
+
+    This should be replaced by some implementation with numpy.atleast_2d.
     """
     if a is None:
         raise TypeError("You have to pass an array-like, not None")
