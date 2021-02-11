@@ -192,9 +192,6 @@ class autoencoder(_autoencoder_base):
     >>> utils.imshow(output[0])
     """
     simple_aes : Sequence[_autoencoder_base] = dataclasses.field(default_factory=list, repr=False)
-
-    def __post_init__(self):
-        self.transform()
     
     @classmethod
     def fit(cls,
