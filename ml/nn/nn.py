@@ -11,8 +11,8 @@ import warnings
 import pickle
 import copy
 
-from . import base, utils
-from .exceptions import NoImprovement
+from .. import base, utils
+from ..exceptions import NoImprovement
 
 
 
