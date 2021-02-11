@@ -40,7 +40,7 @@ evals['simple_perceptron'] = ml.evaluate(pctr, bin_X_test, bin_T_test)
 
 # MLP
 # 訓練に時間がかかるのでpickle化したものを読み込んでいる
-net = ml.load('pkl/best.pkl')    
+net = ml.load('pkl/test_mlp_classifier.pkl')
 net.test(X_test, T_test, verbose=True)
 evals['mlp_classifier'] = ml.evaluate(net, X_test, T_test)
 
